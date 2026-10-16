@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wechat-dots:message-event:0.1",
+  "title": "Normalized group message data",
+  "$comment": "Internal project data and proposed MCP event data payload, not a complete MCP webhook envelope. The trusted adapter supplies identity and mention metadata. Schema validity does not prove origin or authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "event_id", "occurred_at", "channel", "account_id",
+    "room_id", "sender_id", "message_id", "message_type", "text",
+    "mention_bot", "from_self", "known_bot"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "event_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "channel": {"enum": ["wechat", "wecom"]},
+    "account_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "room_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "sender_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "message_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "message_type": {"const": "text"},
+    "text": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "mention_bot": {"type": "boolean"},
+    "from_self": {"type": "boolean"},
+    "known_bot": {"type": "boolean"}
+  }
+}
