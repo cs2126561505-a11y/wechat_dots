@@ -1,0 +1,59 @@
+{
+  "project_contract_version": "0.1",
+  "status": "design_only_not_a_plugin_package",
+  "notes": "Tool annotations describe intended semantics, not implemented security. Default publication excludes the send tool. Authentication, event ownership, group binding, approval and idempotency must be enforced by a future server.",
+  "default_exposed_tools": ["wechat_get_event", "wechat_get_context", "wechat_propose_reply"],
+  "tools": [
+    {
+      "name": "wechat_get_event",
+      "description": "Read an already-authorized cached event for the authenticated principal. Event IDs are not authorization. Never return credentials, other principals' data, or uncaptured chat history.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {"event_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "required": ["event_id"],
+        "additionalProperties": false
+      },
+      "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+    },
+    {
+      "name": "wechat_get_context",
+      "description": "Read bounded, authorized cached context in the same principal, channel, account and source room as the event. Apply age and character limits server-side. No arbitrary history search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20}
+        },
+        "required": ["event_id"],
+        "additionalProperties": false
+      },
+      "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+    },
+    {
+      "name": "wechat_propose_reply",
+      "description": "Persist a reply draft only; never send it. Derive the source room from the authenticated event record. Reuse existing drafts only when scoped idempotency key and content hash match; reject conflicts. Return draft_pending, not sent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "event_id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "text": {"type": "string", "minLength": 1, "maxLength": 800, "pattern": "\\S"},
+          "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "required": ["event_id", "text", "idempotency_key"],
+        "additionalProperties": false
+      },
+      "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+    },
+    {
+      "name": "wechat_send_reply",
+      "description": "Not exposed by default. Send only a server-stored draft with independently verified, unexpired owner approval bound to its exact content, principal, source room and policy version. Recheck access and rate limits, derive destination server-side, and never blindly retry an ambiguous delivery.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {"draft_id": {"type": "string", "minLength": 1, "maxLength": 128}},
+        "required": ["draft_id"],
+        "additionalProperties": false
+      },
+      "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true}
+    }
+  ]
+}
