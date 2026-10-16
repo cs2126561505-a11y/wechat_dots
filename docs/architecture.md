@@ -1,56 +1,54 @@
 # 架构与接口
 
-这是待实现的设计，不是运行中的服务。仓库 JSON 与测试不启动 MCP、微信客户端或机器人。
+本页为普通微信群网关的实现草案，运行服务与端到端接入待完成。
 
-## 数据流
+## 数据流与部署
 
 ```text
-群消息
-  -> 微信 / 企业微信适配器
-  -> 身份绑定、群白名单、去重、触发过滤
-  -> 持久化入站队列
-  -> MCP Events 订阅回调
-  -> 原 ChatGPT dot
-  -> 受限读取工具 / 生成草稿工具
-  -> 所有者在独立审核入口批准
-  -> 发送网关复核权限与幂等性
-  -> 原会话
+普通微信群
+  → WeChatFerry / Wechaty + 已验证 Puppet
+  → 身份绑定、群白名单、去重、触发过滤
+  → 持久化入站队列
+  → MCP Events 订阅回调
+  → 原 ChatGPT dot
+  → 读取工具 / 回复草稿工具
+  → 所有者在独立审核入口批准
+  → 发送网关复核权限与幂等性
+  → 来源群
 ```
 
-我的建议是将网关部署到可维护的常驻服务环境，dot 的云电脑只用于开发、排障与经批准的登录协助。不要把 dot 的可用性当成微信登录、网络连接、队列和回调服务的可靠性保证。接入端可以长轮询或使用 WebSocket；这是微信侧的传输选择，不等于 ChatGPT 的事件投递方式。
+适配器和网关运行在可维护的常驻环境中。Windows Hook 路线需要配套客户端主机，协议服务路线需要对应的服务凭据与连接。dot 的云电脑可承担开发和排障，微信连接、队列及回调由网关单独监控。
 
-## MCP 的真实边界
+## MCP Events
 
-OpenAI 当前集成要求 MCP 2.0（协议版本 `2026-07-28`），使用 webhook，而不是把普通 MCP 读写工具或流连接当作唤醒入口。服务需要提供 `events/list`、`events/subscribe`、`events/unsubscribe`。ChatGPT 订阅时给出回调地址与签名密钥，服务先验证回调，再投递签名事件；不是自行拼接一个所谓「dot 消息 API」。具体报文、Standard Webhooks 签名、HTTPS 地址校验、重试及订阅续期按官方文档实现。[OpenAI MCP Events](https://developers.openai.com/plugins/build/mcp-events)
+按 OpenAI 文档实现 MCP 2.0，协议版本为 `2026-07-28`。在服务发现中声明事件能力，提供 `events/list`、`events/subscribe`、`events/unsubscribe`，持久化订阅并验证 ChatGPT 提供的回调地址，随后通过 Standard Webhooks 投递签名事件。[OpenAI MCP Events](https://developers.openai.com/plugins/build/mcp-events)
 
-本项目拟定义事件名 `wechat.group_message.created`。`contracts/message-event.schema.json` 仅描述网关内部消息及 MCP 事件的业务 `data`，不是完整 webhook 报文。映射时用内部 `event_id` 填外层 `eventId`，用 `occurred_at` 填外层 `timestamp`，外层 `name` 固定为上述事件名。未经审计的原始平台帧、凭据和登录信息不得进入 `data`。
+事件名拟定为 `wechat.group_message.created`。`contracts/message-event.schema.json` 定义业务 `data`；外层 `eventId`、`timestamp`、`name` 分别取内部 `event_id`、`occurred_at` 和上述事件名。`channel` 固定为 `wechat`。普通群身份由适配器根据平台元数据核验，Schema 负责字段约束。
 
-事件正文是第三方消息数据，不得混入「忽略其他规则」「调用某插件」等网关生成的控制指令。所有者授权与群规通过可信配置渠道提供。适配器生成的 `mention_bot`、`from_self`、`sender_id` 必须来自平台元数据，不能从正文或昵称推断。
+`sender_id`、`room_id`、`mention_bot`、`from_self` 来自可信适配器获取的平台元数据。事件正文作为第三方内容保存；群规和所有者授权来自独立配置入口。投递数据采用允许字段清单，凭据、二维码和原始登录帧留在私密凭据域。
 
-## 只提供必要读写工具
+## 工具与审核
 
-`wechat_get_event(event_id)` 取当前认证主体有权查看的已缓存消息；`wechat_get_context(event_id, limit)` 只读同一主体、通道、账号和来源群中已授权缓存的上下文，不代表能查询微信任意历史。
+`wechat_get_event(event_id)` 读取当前认证主体有权访问的已缓存事件。`wechat_get_context(event_id, limit)` 读取同一主体、通道、账号和来源群的授权缓存，并应用时间、条数和字符上限。
 
-`wechat_propose_reply(event_id, text, idempotency_key)` 仅创建草稿，绝不发送；`wechat_send_reply(draft_id)` 只接受服务端已经验证所有者批准、尚未过期的草稿。批准必须绑定草稿正文哈希、来源消息、目标群、所有者、有效期和策略版本。改正文后需重新审核。群里一句「批准」以及模型传入的 `approved=true` 都不能替代审核。
+`wechat_propose_reply(event_id, text, idempotency_key)` 仅创建草稿，返回 `draft_pending`。`wechat_send_reply(draft_id)` 由独立审核服务使用，默认从 dot 的工具目录排除。
 
-发送参数不接受任意 `room_id`、群名、收件人或 webhook URL。网关从可信入站记录和草稿记录确定唯一的来源会话。初期不向 dot 发布发送工具，由独立的所有者审核服务执行发送；工具契约保留该能力供后续审计。
+批准记录绑定正文哈希、来源事件、目标群、所有者、有效期和策略版本。发送时重新鉴权，正文或绑定条件变化后重新审核。群消息和模型传入的 `approved=true` 不能代替所有者批准。
 
-`contracts/tools.json` 是项目工具设计集合，不是可直接上传的完整 ChatGPT 插件包。`annotations` 只是提示信息，不是权限实现。服务端必须进行实际鉴权和访问控制。
+发送接口只接收 `draft_id`，目标群由服务端根据事件与草稿记录确定。`contracts/tools.json` 是工具设计集合，具体权限由服务端执行。
 
-## 权限边界与状态
+## 身份、队列与投递状态
 
-MCP 调用者身份来自服务端验证的认证凭据。订阅的主体、平台账号和群必须逐层绑定。群成员默认只能提出聊天请求，不能使用账户所有者的邮箱、网盘、代码写入、浏览器、终端或其他个人能力。不得提供从聊天修改策略、添加群、提升权限的工具。
+MCP 调用主体由认证凭据确定。建议隔离键为 `(principal_id, channel, account_id, room_id)`，订阅续期与每次读写重新检查权限、群白名单和告知状态。网关缓存隔离与 dot 内部记忆隔离分别验收，详见[权限说明](setup-and-safety.md#个人-dot-与权限)。
 
-网关身份隔离键建议使用 `(principal_id, channel, account_id, room_id)`。订阅续期和每次读写都重新检查群白名单、告知状态和当前权限。服务端缓存的隔离不会自动隔离 dot 自身记忆或其他插件；见[安全说明](setup-and-safety.md)。
+入站去重键为 `(channel, account_id, room_id, message_id)`，持久化 `event_id` 并在重试中复用。出站建立唯一约束 `(principal_id, event_id, reply_slot)`，仅在幂等键和正文哈希均相符时复用结果，冲突则拒绝。每群串行处理。
 
-入站去重键建议为 `(channel, account_id, room_id, message_id)`。建立持久化事件 ID，重试不得更换。出站建立唯一约束 `(principal_id, event_id, reply_slot)`；幂等键与正文哈希都一致时返回已有结果，冲突时拒绝。每群串行处理，避免多个任务重复答复同一条消息。
+状态流建议为 `received → eligible → event_accepted → draft_pending → approved → sending → sent`，另设 `rejected`、`expired`、`failed`、`delivery_unknown`。事件接受、草稿生成和微信发送成功分别记录。发送超时且结果无法核对时进入 `delivery_unknown`，暂停自动重试并交由所有者核验。上游缺乏幂等或可靠回执时，不能保证端到端 exactly-once。
 
-建议状态流为 `received -> eligible -> event_accepted -> draft_pending -> approved -> sending -> sent`，以及 `rejected`、`expired`、`failed`、`delivery_unknown` 分支。事件回调成功只代表收件，并不表示 dot 已回复，更不表示微信发送成功。平台发送请求超时后，若无法核对结果，进入 `delivery_unknown` 待人工处理，不盲目重发。没有上游幂等或可靠回执时，不承诺端到端 exactly-once。
+队列采用有限退避、超时、限流和紧急停止。过滤自身与已识别机器人消息，掉线或权限撤销时暂停投递；恢复后仅处理有效期内的消息。
 
-实现持久化队列、有限退避、超时、审计元数据、每群速率限制、全局限流和紧急停止。自己发出的消息及可识别的其他机器人消息不再唤醒 dot。掉线、权限撤销和过期订阅应停止投递，恢复后不追发超龄聊天。
+## 网络与密钥
 
-## 部署边界
+微信适配器的原始控制端口绑定本机或私网，跨主机使用认证加密通道。公网 MCP 服务独立鉴权并启用 TLS。订阅回调在连接时核验目标地址，阻断内网地址和重定向，签名及密钥轮换依照官方规范实现。[回调安全要求](https://developers.openai.com/plugins/build/mcp-events)
 
-微信适配器的原始 RPC 或 HTTP 控制端口只绑定本机或私网。跨主机采用经过认证的加密通道，不能把无需鉴权的微信控制接口直接暴露到公网。MCP 服务需要独立鉴权、TLS、受限出站网络和安全的订阅凭据存储。回调地址按官方规则防止 SSRF，禁止重定向到内网；开发时不要自造未审核的签名方案。
-
-当前未实现认证服务、MCP 协议方法、消息队列、审核界面或传输适配器。必须完成这些部分以及真实端到端验收，才能说「已接入」。
+上线实现包含适配器、认证、事件方法、持久化队列、审核入口和发送网关，按[验收表](setup-and-safety.md#上线验收)逐项验证。
