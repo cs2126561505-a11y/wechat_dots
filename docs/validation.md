@@ -1,14 +1,18 @@
 # 验证记录
 
-核查日期：2026-10-16。交付为方案、配置与契约，不是已部署的机器人。
+核查日期：2026-10-16。目标范围为普通微信群与原 ChatGPT dot。
 
-## 已完成
+## 本轮变更
 
-已通过 GitHub 连接器将文档、配置、契约、合成事件和测试脚本写入 `cs2126561505-a11y/wechat_dots` 的 `main` 分支，并读回仓库文件树确认路径。所有示例消息及身份均为合成数据，未写入真实群消息或凭据。
+接入清单收敛到 WeChatFerry 与 Wechaty + 具体 Puppet，补充上游归档状态、PadLocal 凭据入口问题及[通道验证计划](transport-validation.md)。现有五份 Markdown 文档删除重复表述与范围外分支，聚焦选型、接口、聊天配置和验证结果。
 
-离线执行环境为 Python 3.13.5、jsonschema 4.26.0。容器直接克隆时无法解析 GitHub 域名，因此本地用已提交内容重建测试副本；测试脚本、5 个 JSON 文件与开发依赖文件共 7 个文件的 Git blob SHA 均与连接器返回的仓库文件树一致。核对基准提交为 `8b8adc7d665e62f84f6fe9b23368b23107bd6082`。不是仅检查了一份未提交的近似代码。
+事件与群策略契约升级到 `0.2`：事件 `channel` 固定为 `wechat`，群策略移除 `wecom_aibot`，配置和合成事件同步更新。原有 `0.1` 事件与策略须先审阅并迁移，工具契约继续使用独立的 `0.1` 版本。
 
-执行命令：
+## 离线验证
+
+本轮从 GitHub 连接器读取基线文件。测试所需的七个文件在修改前，其 Git blob SHA 均与仓库基线 `0a3348f97234109c722b79a680527c0e9b20997f` 一致。基线上一轮记录为 14 项测试通过。
+
+本轮离线执行环境为 Python 3.13.5、jsonschema 4.26.0，执行：
 
 ```sh
 python -m unittest discover -s tests -v
@@ -17,33 +21,27 @@ python -m unittest discover -s tests -v
 实际结果：
 
 ```text
-Ran 14 tests in 0.016s
+Ran 17 tests in 0.025s
 
 OK
 ```
 
-这 14 项测试覆盖 JSON 解析、Schema 合法性、示例一致性、默认禁用状态、启用时的静态前置条件、非官方通道显式选择、第一阶段安全参数、事件必要字段与时间格式，以及读取/草稿/发送工具的输入约束。负例包括伪造批准字段、任意改变目标群、替换发送正文、超长或空白草稿、缺少幂等键、超量上下文和发布发送工具。
+保留原有 14 项检查，修正启用测试中的通道样例，并新增三项：接入候选范围约束、事件通道约束、`0.2` 版本要求。测试继续覆盖默认关闭、草稿模式、显式通道选择、必要身份字段、上下文上限、伪造批准和收件目标变更等输入。
 
-## 源文件核对
+测试副本的 Git blob SHA 如下，已与本轮 GitHub 写入结果和原有文件记录核对：
 
 | 文件 | Git blob SHA |
 | --- | --- |
-| config/group-policy.example.json | fef7bb8befbbfe55229ee9b153ffe519bcdb60d2 |
-| contracts/group-policy.schema.json | 5673f464e6e262f4d13fdb67f34a5e6302762bd8 |
-| contracts/message-event.schema.json | e171dc37baa9c48d543ccac2938aef85d7995064 |
-| contracts/tools.json | e8f9428f4904e48e2db9f97f553bc2c57c78161a |
-| examples/message-event.json | 6721038d37155c66e63b89b5e3961c5f634a8d3c |
-| tests/test_contracts.py | 1ca2a826e2bd467d790772c25a64b8502c8903a3 |
-| requirements-dev.txt | 6e7e3a98c689e64dba53963f7df5bdd69fdecb6b |
+| `config/group-policy.example.json` | `8545ae6c847c3c5fb6dcb7e6cdff4f1405d7383e` |
+| `contracts/group-policy.schema.json` | `d8d66691b3bb7e53d887f74a1a88da02057fee7d` |
+| `contracts/message-event.schema.json` | `f72cf93885702b92fe3cc27ce87067de3f5fd1c5` |
+| `contracts/tools.json` | `e8f9428f4904e48e2db9f97f553bc2c57c78161a` |
+| `examples/message-event.json` | `47cb32abf8a79299f12ed2426a22569127381ff1` |
+| `tests/test_contracts.py` | `5dfc6969b4239c2138d591984113f80c2f46ae22` |
+| `requirements-dev.txt` | `6e7e3a98c689e64dba53963f7df5bdd69fdecb6b` |
 
-## 没有验证的部分
+## 实机状态与下一步
 
-未登录微信或企业微信，未测试目标群，未运行 Wechaty Puppet、WeChatFerry 或 WeCom SDK；未部署 MCP 服务，未在 dot 中安装本项目插件，未注册实际事件订阅、执行回调验证或发送群消息。没有运行 GitHub Actions CI。
+微信账号登录、普通群收发、Puppet 凭据、网关执行器、MCP 订阅与 dot 唤醒均待实现或实测；GitHub Actions CI 待配置。当前结果证明项目契约的离线一致性。
 
-JSON Schema 不能验证真实身份、群成员告知与授权、服务器鉴权、数据库唯一约束、审批真实性、运行时限流、SSRF 防护、提示注入防护或 dot 记忆隔离。工具描述中的行为都是后续实现要求，不应被当作已经生效的防护。
-
-公开文档核查不等同于账号实测，也不证明服务的长期可用性。尤其不能把腾讯微信插件的私聊能力扩展解释成普通微信群能力，或把企业微信机器人适用会话扩展解释成任意微信外部群。
-
-## 下一道验收门槛
-
-先在获得必要授权的隔离测试群验证收发通道。普通微信群坚持不迁移时，必须先确认选定非官方适配器的实际登录和群能力；可迁移企业微信时核对管理端准入范围。然后用合成事件验证真正的 dot 订阅及草稿流程，最后进行[端到端验收](setup-and-safety.md)。没有通过这些测试前，不启用自动发送。
+认证、平台身份核验、成员告知、审批、运行时限流、网络防护及 dot 权限隔离通过后续服务与端到端测试验证。下一步从[通道准入](transport-validation.md)开始，通过后进行[上线验收](setup-and-safety.md#上线验收)。
