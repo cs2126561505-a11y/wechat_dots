@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:wechat-dots:message-event:0.1",
-  "title": "Normalized group message data",
+  "$id": "urn:wechat-dots:message-event:0.2",
+  "title": "Normalized ordinary WeChat group message data",
   "$comment": "Internal project data and proposed MCP event data payload, not a complete MCP webhook envelope. The trusted adapter supplies identity and mention metadata. Schema validity does not prove origin or authorization.",
   "type": "object",
   "additionalProperties": false,
@@ -11,10 +11,10 @@
     "mention_bot", "from_self", "known_bot"
   ],
   "properties": {
-    "schema_version": {"const": "0.1"},
+    "schema_version": {"const": "0.2"},
     "event_id": {"type": "string", "minLength": 1, "maxLength": 128},
     "occurred_at": {"type": "string", "format": "date-time"},
-    "channel": {"enum": ["wechat", "wecom"]},
+    "channel": {"const": "wechat"},
     "account_id": {"type": "string", "minLength": 1, "maxLength": 256},
     "room_id": {"type": "string", "minLength": 1, "maxLength": 256},
     "sender_id": {"type": "string", "minLength": 1, "maxLength": 256},
