@@ -1,0 +1,2 @@
+# Development-only schema checks. No WeChat, OpenAI or MCP runtime is installed.
+jsonschema[format]==4.26.0
