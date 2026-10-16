@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:wechat-dots:group-policy:0.1",
-  "title": "wechat_dots first-stage policy",
+  "$id": "urn:wechat-dots:group-policy:0.2",
+  "title": "wechat_dots ordinary WeChat group policy",
   "$comment": "Project contract only. Validation is not runtime enforcement, authorization, consent verification, or dot memory isolation. This version deliberately permits only draft mode.",
   "type": "object",
   "additionalProperties": false,
@@ -18,9 +18,9 @@
     "auth_required", "owner_approval_required"
   ],
   "properties": {
-    "schema_version": {"const": "0.1"},
+    "schema_version": {"const": "0.2"},
     "enabled": {"type": "boolean"},
-    "transport": {"enum": ["unselected", "wecom_aibot", "wechaty_experimental", "wechatferry_experimental"]},
+    "transport": {"enum": ["unselected", "wechaty_experimental", "wechatferry_experimental"]},
     "allow_unofficial_transport": {"type": "boolean"},
     "allowed_room_ids": {"type": "array", "maxItems": 10, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
     "reply_mode": {"const": "draft_only"},
@@ -53,7 +53,7 @@
       "if": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]},
       "then": {
         "properties": {
-          "transport": {"enum": ["wecom_aibot", "wechaty_experimental", "wechatferry_experimental"]},
+          "transport": {"enum": ["wechaty_experimental", "wechatferry_experimental"]},
           "allowed_room_ids": {"minItems": 1},
           "notice_confirmed": {"const": true}
         }
