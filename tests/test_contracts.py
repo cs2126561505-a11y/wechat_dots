@@ -72,7 +72,8 @@ class ContractTests(unittest.TestCase):
 
     def test_enabling_requires_declared_prerequisites(self) -> None:
         valid = copy.deepcopy(self.policy)
-        valid.update(enabled=True, transport="wecom_aibot",
+        valid.update(enabled=True, transport="wechatferry_experimental",
+                     allow_unofficial_transport=True,
                      allowed_room_ids=["room_synthetic_001"], notice_confirmed=True)
         self.policy_validator.validate(valid)
         for key, value in (("transport", "unselected"),
@@ -166,6 +167,33 @@ class ContractTests(unittest.TestCase):
             self.tool_validator("wechat_get_context").validate(
                 {"event_id": "evt_synthetic_001", "room_id": "another_room"}
             )
+
+    def test_policy_scope_is_limited_to_selected_wechat_candidates(self) -> None:
+        expected = {"unselected", "wechaty_experimental", "wechatferry_experimental"}
+        self.assertEqual(set(self.policy_schema["properties"]["transport"]["enum"]), expected)
+        for transport in ("wecom_aibot", "openclaw_weixin", "unknown_adapter"):
+            candidate = dict(self.policy, transport=transport)
+            with self.subTest(transport=transport), self.assertRaises(ValidationError):
+                self.policy_validator.validate(candidate)
+        for transport in expected - {"unselected"}:
+            candidate = dict(self.policy, enabled=True, transport=transport,
+                             allow_unofficial_transport=True,
+                             allowed_room_ids=["room_synthetic_001"], notice_confirmed=True)
+            with self.subTest(enabled_transport=transport):
+                self.policy_validator.validate(candidate)
+
+    def test_events_are_scoped_to_wechat(self) -> None:
+        self.assertEqual(self.event["channel"], "wechat")
+        for channel in ("wecom", "wechat_dm", "unknown"):
+            with self.subTest(channel=channel), self.assertRaises(ValidationError):
+                self.event_validator.validate(dict(self.event, channel=channel))
+
+    def test_scope_revision_requires_contract_version_0_2(self) -> None:
+        for sample, validator in ((self.policy, self.policy_validator),
+                                  (self.event, self.event_validator)):
+            self.assertEqual(sample["schema_version"], "0.2")
+            with self.assertRaises(ValidationError):
+                validator.validate(dict(sample, schema_version="0.1"))
 
     def test_send_is_not_published_by_default(self) -> None:
         self.assertEqual(len(self.tools), len(self.catalog["tools"]))
