@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:wechat-dots:group-policy:0.1",
+  "title": "wechat_dots first-stage policy",
+  "$comment": "Project contract only. Validation is not runtime enforcement, authorization, consent verification, or dot memory isolation. This version deliberately permits only draft mode.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "enabled", "transport", "allow_unofficial_transport",
+    "allowed_room_ids", "reply_mode", "publish_send_tool", "mention_required",
+    "allow_prefix_trigger", "ignore_self", "ignore_known_bots",
+    "collect_only_triggered_messages", "context_max_messages",
+    "context_max_age_seconds", "context_max_chars", "reply_max_chars",
+    "room_max_replies_per_minute", "global_max_replies_per_minute",
+    "room_max_inflight", "message_ttl_seconds", "draft_ttl_seconds",
+    "notice_confirmed", "raw_message_log", "gateway_content_retention_hours",
+    "cross_room_memory", "external_action_tools", "text_only",
+    "auth_required", "owner_approval_required"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1"},
+    "enabled": {"type": "boolean"},
+    "transport": {"enum": ["unselected", "wecom_aibot", "wechaty_experimental", "wechatferry_experimental"]},
+    "allow_unofficial_transport": {"type": "boolean"},
+    "allowed_room_ids": {"type": "array", "maxItems": 10, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+    "reply_mode": {"const": "draft_only"},
+    "publish_send_tool": {"const": false},
+    "mention_required": {"const": true},
+    "allow_prefix_trigger": {"const": false},
+    "ignore_self": {"const": true},
+    "ignore_known_bots": {"const": true},
+    "collect_only_triggered_messages": {"const": true},
+    "context_max_messages": {"type": "integer", "minimum": 1, "maximum": 20},
+    "context_max_age_seconds": {"type": "integer", "minimum": 1, "maximum": 600},
+    "context_max_chars": {"type": "integer", "minimum": 1, "maximum": 8000},
+    "reply_max_chars": {"type": "integer", "minimum": 1, "maximum": 800},
+    "room_max_replies_per_minute": {"type": "integer", "minimum": 1, "maximum": 10},
+    "global_max_replies_per_minute": {"type": "integer", "minimum": 1, "maximum": 60},
+    "room_max_inflight": {"const": 1},
+    "message_ttl_seconds": {"type": "integer", "minimum": 1, "maximum": 300},
+    "draft_ttl_seconds": {"type": "integer", "minimum": 1, "maximum": 900},
+    "notice_confirmed": {"type": "boolean"},
+    "raw_message_log": {"const": false},
+    "gateway_content_retention_hours": {"type": "integer", "minimum": 1, "maximum": 24},
+    "cross_room_memory": {"const": false},
+    "external_action_tools": {"const": false},
+    "text_only": {"const": true},
+    "auth_required": {"const": true},
+    "owner_approval_required": {"const": true}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]},
+      "then": {
+        "properties": {
+          "transport": {"enum": ["wecom_aibot", "wechaty_experimental", "wechatferry_experimental"]},
+          "allowed_room_ids": {"minItems": 1},
+          "notice_confirmed": {"const": true}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"transport": {"enum": ["wechaty_experimental", "wechatferry_experimental"]}}, "required": ["transport"]},
+      "then": {"properties": {"allow_unofficial_transport": {"const": true}}}
+    }
+  ]
+}
