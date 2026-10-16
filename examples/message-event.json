@@ -1,8 +1,8 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "event_id": "evt_synthetic_001",
   "occurred_at": "2026-10-16T12:00:00Z",
-  "channel": "wecom",
+  "channel": "wechat",
   "account_id": "acct_synthetic_001",
   "room_id": "room_synthetic_001",
   "sender_id": "user_synthetic_001",
