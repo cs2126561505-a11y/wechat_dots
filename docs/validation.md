@@ -20,7 +20,7 @@
 
 本轮启动返回 `E_FAIL (0x80004005)`，完整性检查日志终止于 `supR3HardenedWinReSpawn`、`-104` 和 Windows 错误 `5`。对照 [VirtualBox 官方启动源码](https://github.com/VirtualBox/virtualbox/blob/master/src/VBox/HostDrivers/Support/win/SUPR3HardenedMain-win.cpp)，该提示位于创建下一层 VM 子进程失败的分支；它本身不足以确定驱动冲突、内存不足或 Hyper-V 性能问题。VirtualBox 主驱动正在运行，相关程序签名有效，虚拟磁盘仍为空白的 2 MiB 文件。发现两套游戏反作弊驱动正在运行，仅列为兼容性排查候选；尚未确认因果关系，也未停止驱动或修改安全功能。
 
-Windows 界面工具连续两次返回 `trusted Node process exited unexpectedly`，目前无法代操作正常启动界面，已请所有者在 VirtualBox 中启动已创建的虚拟机作对照。账号凭据保存在本机受限目录，完整诊断日志仅保存在本机。
+Windows 界面工具连续两次返回 `trusted Node process exited unexpectedly`，目前无法代操作正常启动界面，所有者因此手动进行对照。打开 `.vbox` 文件产生已有 UUID 重复注册提示；管理器的 USB 枚举提示对应未安装的 Host USB Proxy Service，而本机测试配置已经关闭来宾 USB。随后点击正常启动生成了新的 `VirtualBoxVM.exe` 日志，复现与后台启动相同的子进程创建失败；虚拟机仍关机、磁盘仍为空白。正在征求所有者是否通过厂商提供的退出方式暂时退出游戏反作弊程序作对照，尚未执行。账号凭据保存在本机受限目录，完整诊断日志仅保存在本机。
 
 内存来源检查发现 11 个 Node 进程，合计约 417 MiB 私有工作集；其中 10 个属于 Codex，约 395 MiB，另一个属于 Adobe。Codex 进程包括三组代码审查、应用工具、浏览器控制服务，以及一个文档产物服务。启动时间呈批次，与会话初始化触发服务的解释相符；缺少操作前后的连续记录，无法断言关闭预览页导致了这些进程，也无法据进程数量判断泄漏。相比重启前一次约 850 MiB 的采样，占用已经下降。当前 ChatGPT 主程序及子进程合计约 1.5 GiB；此处使用私有工作集，未把共享内存重复累加。
 
