@@ -2,9 +2,9 @@
 
 核查日期：2026-10-17。目标范围为普通微信群与原 ChatGPT dot。
 
-## 2026-10-17：专用虚拟机已配置，等待主机重启
+## 2026-10-17：主机重启完成，来宾首次启动受阻
 
-环境方案收敛为本地 E 盘上的专用 Windows 虚拟机，仅登录测试账号。Broadcom 资料审核显示 `Account verification is Pending`，下载指导见[账户与下载说明](broadcom-download-guide.md)。完成兼容评估后，所有者明确确认先试 VirtualBox，并保留现有安全功能。目前 VirtualBox 已安装，E 盘测试虚拟机与自动安装资料已配置；主机待手动重启，来宾系统尚未启动或安装。主机 VBS、内存完整性及日常微信保持现状。
+环境方案收敛为本地 E 盘上的专用 Windows 虚拟机，仅登录测试账号。Broadcom 资料审核显示 `Account verification is Pending`，下载指导见[账户与下载说明](broadcom-download-guide.md)。完成兼容评估后，所有者明确确认先试 VirtualBox，并保留现有安全功能。VirtualBox、E 盘测试虚拟机与自动安装资料已配置，所有者已重启主机；首次后台启动在 VirtualBox 进程创建阶段失败，尚未进入 Windows 安装。主机 VBS、内存完整性及日常微信保持现状。
 
 微软官方 Windows 11 企业评估版中文 x64 镜像已完成下载，文件大小为 `8548628480` 字节，SHA256 为 `b37a06d5121eee017826c0b133250bbd21bec694c2d607c60edd29090e667a84`，与官方发布值一致。镜像提供 90 天评估，尚未安装到来宾。[官方下载页](https://www.microsoft.com/en-us/evalcenter/download-windows-11-enterprise) · [官方校验值](https://support.microsoft.com/en-us/servicing/os/windows/docs/2026/09/verify-the-authenticity-of-a-windows-11-enterprise-evaluation-iso-file)
 
@@ -12,7 +12,17 @@
 
 腾讯官方 `WeChatWin_4.1.15.exe` 链接当前已被 `4.1.15.53` 覆盖，因此改从公开的 [4.1.15.13 历史归档](https://github.com/cscnk52/wechat-windows-versions/releases/tag/v4.1.15.13)获取固定版本安装器。文件大小为 `256624952` 字节，SHA256 为 `d5f3bb4232c0f172bce53141db90bf60f5f0a53eb137663ab8d32e74e04b9f4f`，与归档记录一致。Windows 签名验证确认安装器及内部 `Weixin.exe` 的腾讯签名均有效；解包后客户端 FileVersion 和 ProductVersion 均为 `4.1.15.13`，客户端 SHA256 为 `a832fb321ddb5f9701dd3a7bb1958804f09b620b9ad328f52e2e352651ab886c`。该安装器已加入来宾资料包；宿主仅作文件检查，未执行安装器或客户端。来宾安装后还需复核实际运行版本，当前结论仅覆盖文件来源、完整性及版本。
 
-下一阶段由所有者保存工作并手动重启主机，复核安全功能、WHP 与内存余量后启动 Windows 来宾安装，再完成离线验收与测试账号绑定审查。实时入口仍保持关闭，普通群收发和 dot 接入均未验证。详细下载及校验记录仅保存在本地实验目录。
+下一阶段先排查 VirtualBox 启动失败，恢复启动后监测主机内存并完成 Windows 来宾安装，再执行离线验收与测试账号绑定审查。实时入口仍保持关闭，普通群收发和 dot 接入均未验证。详细下载及校验记录仅保存在本地实验目录。
+
+### 重启后的检查与启动诊断
+
+系统启动时间确认更新为本地时间 2026-10-17 07:40:56，Windows Hypervisor Platform 已启用，VBS 与内存完整性继续运行。采样可用内存约 3.6–3.8 GiB，低于此前建议的约 6 GiB 操作余量。采用既定 4 GiB 来宾配置作一次受监测的启动尝试，计划在主机内存余量持续过低时保存来宾状态；实际在内存负载测试前已启动失败，因此尚无来宾性能结论。VS Code 和当前任务均保留。
+
+本轮启动返回 `E_FAIL (0x80004005)`，完整性检查日志终止于 `supR3HardenedWinReSpawn`、`-104` 和 Windows 错误 `5`。对照 [VirtualBox 官方启动源码](https://github.com/VirtualBox/virtualbox/blob/master/src/VBox/HostDrivers/Support/win/SUPR3HardenedMain-win.cpp)，该提示位于创建下一层 VM 子进程失败的分支；它本身不足以确定驱动冲突、内存不足或 Hyper-V 性能问题。VirtualBox 主驱动正在运行，相关程序签名有效，虚拟磁盘仍为空白的 2 MiB 文件。发现两套游戏反作弊驱动正在运行，仅列为兼容性排查候选；尚未确认因果关系，也未停止驱动或修改安全功能。
+
+Windows 界面工具连续两次返回 `trusted Node process exited unexpectedly`，目前无法代操作正常启动界面，已请所有者在 VirtualBox 中启动已创建的虚拟机作对照。账号凭据保存在本机受限目录，完整诊断日志仅保存在本机。
+
+内存来源检查发现 11 个 Node 进程，合计约 417 MiB 私有工作集；其中 10 个属于 Codex，约 395 MiB，另一个属于 Adobe。Codex 进程包括三组代码审查、应用工具、浏览器控制服务，以及一个文档产物服务。启动时间呈批次，与会话初始化触发服务的解释相符；缺少操作前后的连续记录，无法断言关闭预览页导致了这些进程，也无法据进程数量判断泄漏。相比重启前一次约 850 MiB 的采样，占用已经下降。当前 ChatGPT 主程序及子进程合计约 1.5 GiB；此处使用私有工作集，未把共享内存重复累加。
 
 ### 安装前：审核等待期间的虚拟机兼容评估
 
