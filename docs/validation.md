@@ -54,5 +54,3 @@ Python 3.12 环境下执行 `python -m unittest discover -s tests -v`，34 项�
 接入候选收敛到 WeChatFerry 与 Wechaty + 具体 Puppet，补充上游归档状态、凭据入口问题及[通道验证计划](transport-validation.md)。事件与群策略契约升级到 `0.2`：事件 `channel` 固定为 `wechat`，群策略移除 `wecom_aibot`，配置和合成事件同步更新；工具契约保持独立的 `0.1` 版本。
 
 该轮在 Python 3.13.5、jsonschema 4.26.0 下通过 17 项离线测试，覆盖默认关闭、草稿模式、显式通道选择、必要身份字段、上下文上限、伪造批准和收件目标变更等输入。账号登录、群收发、网关、MCP 订阅与 dot 唤醒当时均待实现或实测。历史测试证明契约的离线一致性，后续仍按[通道准入](transport-validation.md)与[上线验收](setup-and-safety.md#上线验收)推进。
-
-warning: in the working copy of 'docs/validation.md', LF will be replaced by CRLF the next time Git touches it
