@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 import sqlite3
@@ -33,6 +34,22 @@ def mention_targets(source: object) -> tuple[str, ...] | None:
     format. Missing, malformed or unfamiliar metadata remains UNKNOWN.
     """
     if isinstance(source, bytes):
+        if len(source) > 16384:
+            return None
+        if source.startswith(b"\x28\xb5\x2f\xfd"):
+            # Observed in the pinned 4.1.15.13 guest. Never use an unbounded
+            # decompression call: compressed metadata is still untrusted input.
+            try:
+                import zstandard
+            except ImportError:
+                return None
+            try:
+                with zstandard.ZstdDecompressor().stream_reader(io.BytesIO(source)) as reader:
+                    source = reader.read(16385)
+                if len(source) > 16384:
+                    return None
+            except (ValueError, zstandard.ZstdError):
+                return None
         try:
             source = source.decode("utf-8", errors="strict")
         except UnicodeDecodeError:

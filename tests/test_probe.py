@@ -85,6 +85,15 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(core.mention_targets(b"<msgsource><atuserlist><![CDATA[wxid_a,wxid_b]]></atuserlist></msgsource>"),
                          ("wxid_a", "wxid_b"))
 
+    def test_zstd_platform_source_is_bounded_and_missing_targets_stay_unknown(self):
+        import zstandard
+        encode = zstandard.ZstdCompressor().compress
+        self.assertEqual(core.mention_targets(encode(b'<msgsource><atuserlist>wxid_self</atuserlist></msgsource>')), ('wxid_self',))
+        self.assertIsNone(core.mention_targets(encode(b'<msgsource><signature>synthetic</signature></msgsource>')))
+        self.assertIsNone(core.mention_targets(encode(b'x' * 20000)))
+        self.assertIsNone(core.mention_targets(b'\x28\xb5\x2f\xfd\x00'))
+        self.assertIsNone(core.mention_targets(encode(b'<!DOCTYPE x><msgsource><atuserlist>wxid_self</atuserlist></msgsource>')))
+
     def test_only_synthetic_marked_text_is_retained(self):
         for change in ({"content": "unrelated private text"}, {"local_type": 3},
                        {"content": "WXDOTS_TEST_REAL_AT_MORE"},

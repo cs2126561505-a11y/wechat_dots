@@ -12,7 +12,7 @@ import types
 from pathlib import Path
 
 from .core import ProbeError
-from .isolation import require_live_admission
+from .isolation import require_live_admission, check_lease_still_active
 
 COMMIT = "62503d76a0db069171cb4e42e87090ad285db489"
 VERSION = "1.2.6.1"
@@ -105,7 +105,7 @@ def account_paths(module) -> list[Path]:
 
 
 def open_reader(module, account: Path, process: dict, cache: Path):
-    require_live_admission()  # Must precede process access, database I/O and cache creation.
+    lease = require_live_admission(account, process)
     if process_binding() != process:
         raise ProbeError("WeChat process changed; re-bind before reading.")
     account = account.resolve(strict=True)
@@ -137,6 +137,11 @@ def open_reader(module, account: Path, process: dict, cache: Path):
                     continue
                 if p.is_symlink() or not p.resolve().is_relative_to(base.resolve()):
                     raise ProbeError("Database path escapes the bound account.")
+                for component in (p, *p.parents):
+                    if getattr(component.stat(), "st_file_attributes", 0) & 0x400:
+                        raise ProbeError("Database path contains a redirected filesystem component.")
+                    if component == base:
+                        break
                 rel = p.relative_to(base).as_posix()
                 if rel == "contact/contact.db" or re.fullmatch(r"message/message_\d+\.db", rel):
                     out.append((rel, str(p), p.stat().st_size))
@@ -159,6 +164,8 @@ def open_reader(module, account: Path, process: dict, cache: Path):
             return [process["pid"]]
 
         def _open(self, rel):
+            check_lease_still_active(lease)
+            self._refresh_db_files()
             if process_binding() != process:
                 raise ProbeError("WeChat restarted; reading stopped.")
             if rel not in {x[0] for x in self._db_files}:

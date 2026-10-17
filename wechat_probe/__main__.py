@@ -52,7 +52,7 @@ def audit():
         "candidate": "wechatauto-replica", "version": replica.VERSION,
         "commit": replica.COMMIT, "db_sha256": replica.DB_SHA256,
         "required_client_version": replica.CLIENT_VERSION,
-        "read_admission": "blocked_pending_dedicated_environment_review",
+        "read_admission": "requires_current_private_guest_lease",
         "isolation": assessment(),
         "upstream_default_constructor": "excluded: account fallback and key caches",
         "upstream_gui": "excluded: process-memory writes and ambiguous display-name routing",
@@ -75,6 +75,8 @@ def discover():
 
 def bind(args, run: Path):
     require_live_admission()
+    if args.room != "test-group":
+        raise ProbeError("This admission only covers test-group.")
     journal = Journal(run / "probe.sqlite3")
     try:
         if journal.conn.execute("SELECT 1 FROM config").fetchone():
