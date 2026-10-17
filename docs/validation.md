@@ -4,7 +4,7 @@
 
 ## 2026-10-17：专用虚拟机的安装前准备
 
-环境方案收敛为本地 E 盘上的专用 Windows 虚拟机，仅登录测试账号；虚拟机软件优先选择 VMware Workstation Pro，VirtualBox 保留为备选。所有者已注册 Broadcom 账号并在浏览器登录，正按[下载指导](broadcom-download-guide.md)确认资料审核及免费软件下载资格。尚未安装虚拟机软件、创建来宾系统或验证账号隔离。主机 VBS、内存完整性及日常微信保持现状。
+环境方案收敛为本地 E 盘上的专用 Windows 虚拟机，仅登录测试账号；此前优先选择 VMware Workstation Pro。所有者已注册 Broadcom 账号、提交资料，并确认页面显示 `Account verification is Pending`，下载指导见[账户与下载说明](broadcom-download-guide.md)。审核等待期间评估 VirtualBox 的有限试用价值，尚未切换或安装虚拟机软件、创建来宾系统或验证账号隔离。主机 VBS、内存完整性及日常微信保持现状。
 
 微软官方 Windows 11 企业评估版中文 x64 镜像已完成下载，文件大小为 `8548628480` 字节，SHA256 为 `b37a06d5121eee017826c0b133250bbd21bec694c2d607c60edd29090e667a84`，与官方发布值一致。镜像提供 90 天评估，尚未安装到来宾。[官方下载页](https://www.microsoft.com/en-us/evalcenter/download-windows-11-enterprise) · [官方校验值](https://support.microsoft.com/en-us/servicing/os/windows/docs/2026/09/verify-the-authenticity-of-a-windows-11-enterprise-evaluation-iso-file)
 
@@ -12,7 +12,19 @@
 
 腾讯官方 `WeChatWin_4.1.15.exe` 链接当前已被 `4.1.15.53` 覆盖，因此改从公开的 [4.1.15.13 历史归档](https://github.com/cscnk52/wechat-windows-versions/releases/tag/v4.1.15.13)获取固定版本安装器。文件大小为 `256624952` 字节，SHA256 为 `d5f3bb4232c0f172bce53141db90bf60f5f0a53eb137663ab8d32e74e04b9f4f`，与归档记录一致。Windows 签名验证确认安装器及内部 `Weixin.exe` 的腾讯签名均有效；解包后客户端 FileVersion 和 ProductVersion 均为 `4.1.15.13`，客户端 SHA256 为 `a832fb321ddb5f9701dd3a7bb1958804f09b620b9ad328f52e2e352651ab886c`。该安装器已加入来宾资料包；宿主仅作文件检查，未执行安装器或客户端。来宾安装后还需复核实际运行版本，当前结论仅覆盖文件来源、完整性及版本。
 
-下一阶段取得并核验 Workstation 官方安装包，确认内存余量后安装来宾，关闭主机文件夹共享、共享剪贴板和拖放，再完成来宾离线验收与测试账号绑定审查。实时入口仍保持关闭，普通群收发和 dot 接入均未验证。详细下载及校验记录仅保存在本地实验目录。
+下一阶段先取得足够内存余量，再按下面的兼容评估选择虚拟机软件，安装来宾并关闭主机文件夹共享、共享剪贴板和拖放，完成来宾离线验收与测试账号绑定审查。实时入口仍保持关闭，普通群收发和 dot 接入均未验证。详细下载及校验记录仅保存在本地实验目录。
+
+### 审核等待期间的虚拟机兼容评估
+
+只读检查确认宿主为 Windows 11 家庭版 23H2（22631.6199）、i7-13650HX，物理内存可用容量 15.63 GiB，采样时剩余 2.89 GiB；E 盘剩余 114.92 GiB，C 盘剩余 22.36 GiB。系统报告 Microsoft hypervisor 已加载，VBS 与内存完整性正在运行；Windows Hypervisor Platform、Virtual Machine Platform、WSL 可选组件均关闭。家庭版缺少完整 Hyper-V 角色，与已有安全功能使用 hypervisor 属于不同层面。[微软 Hyper-V 版本要求](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/install-hyper-v) · [VBS 状态解释](https://learn.microsoft.com/en-us/windows/security/threat-protection/device-guard/enable-virtualization-based-protection-of-code-integrity)
+
+VirtualBox 7.2 官方共存方案要求 Windows Hypervisor Platform 已启用，并继续提示部分宿主可能明显降速；因此本机试用包含启用该组件、安装驱动及可能重启。Workstation 在宿主 VBS 开启时同样使用 Windows Hypervisor Platform 技术，当前硬件和系统满足其文档列出的共存最低条件，实际运行模式仍须安装后确认。两款软件在本机的性能均待实测；Broadcom 关于 17.x / Windows 24H2 的降速记录只能作为机制与风险参考，不能直接认定当前版本受同一故障影响。[Oracle 共存说明](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/AdvancedTopics.html) · [Workstation 共存条件](https://knowledge.broadcom.com/external/article/315420/) · [Broadcom 性能说明](https://knowledge.broadcom.com/external/article/417896/after-the-host-os-upgrade-to-version-win.html)
+
+建议有限试用的起点为 2 个虚拟处理器、4 GiB 内存和 80 GiB 动态虚拟硬盘，启用来宾 EFI、TPM 2.0 与 Secure Boot。启动前可用内存达到约 6 GiB 属于本项目的操作余量目标，4 GiB 是 Windows 来宾最低配置，实际微信及更新负载可能需要更多内存。先观察 Windows 桌面、重启、输入与离线测试的响应及宿主内存压力；评估窗口设为系统初始化和更新完成后的约 30 分钟。持续换页、卡顿或启动失败时结束试用并关机。页面文件保持系统管理，VS Code 与正在执行的任务继续保留。[Windows 11 虚拟机要求](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements)
+
+VirtualBox 自定义程序安装目录及其父目录存在专门权限要求，现有 E 盘实验目录使用继承的数据盘权限。低改动方案建议软件本体使用 C 盘默认程序目录，虚拟硬盘、快照和镜像放 E 盘；若要求软件本体也位于 E 盘，则另行设计专用受保护目录。首轮使用 NAT，主机文件夹共享、剪贴板、拖放和 USB 自动连接保持关闭，文件通过已校验的只读资料光盘进入来宾。保留 VBS 的方案主要涉及可卸载软件、可恢复的平台组件开关和可独立保留的虚拟机文件，属于中低复杂度试用；关闭主机安全功能的性能路线超出本轮推荐范围。后续改用 Workstation 时，复用系统与资料 ISO 重建来宾最稳妥，虚拟磁盘、TPM 状态和快照的跨产品迁移另需验证。[Oracle 安装目录与卸载说明](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/installation.html)
+
+评估结论为：VirtualBox 值得作为审核等待期间的有限试验，前提是先解决内存余量并接受平台组件变更及重启；收益来自缩短等待和获得本机证据，尚无证据证明其 Hyper-V 性能风险已消失。本轮仅完成读取与评估，系统组件、目录权限、虚拟机软件和实时探针门禁均未修改。
 
 ## 2026-10-17：固定版本审查与离线探针
 
