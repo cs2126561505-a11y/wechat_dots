@@ -2,9 +2,9 @@
 
 核查日期：2026-10-17。目标范围为普通微信群与原 ChatGPT dot。
 
-## 2026-10-17：专用虚拟机的安装前准备
+## 2026-10-17：专用虚拟机已配置，等待主机重启
 
-环境方案收敛为本地 E 盘上的专用 Windows 虚拟机，仅登录测试账号；此前优先选择 VMware Workstation Pro。所有者已注册 Broadcom 账号、提交资料，并确认页面显示 `Account verification is Pending`，下载指导见[账户与下载说明](broadcom-download-guide.md)。审核等待期间评估 VirtualBox 的有限试用价值，尚未切换或安装虚拟机软件、创建来宾系统或验证账号隔离。主机 VBS、内存完整性及日常微信保持现状。
+环境方案收敛为本地 E 盘上的专用 Windows 虚拟机，仅登录测试账号。Broadcom 资料审核显示 `Account verification is Pending`，下载指导见[账户与下载说明](broadcom-download-guide.md)。完成兼容评估后，所有者明确确认先试 VirtualBox，并保留现有安全功能。目前 VirtualBox 已安装，E 盘测试虚拟机与自动安装资料已配置；主机待手动重启，来宾系统尚未启动或安装。主机 VBS、内存完整性及日常微信保持现状。
 
 微软官方 Windows 11 企业评估版中文 x64 镜像已完成下载，文件大小为 `8548628480` 字节，SHA256 为 `b37a06d5121eee017826c0b133250bbd21bec694c2d607c60edd29090e667a84`，与官方发布值一致。镜像提供 90 天评估，尚未安装到来宾。[官方下载页](https://www.microsoft.com/en-us/evalcenter/download-windows-11-enterprise) · [官方校验值](https://support.microsoft.com/en-us/servicing/os/windows/docs/2026/09/verify-the-authenticity-of-a-windows-11-enterprise-evaluation-iso-file)
 
@@ -12,9 +12,9 @@
 
 腾讯官方 `WeChatWin_4.1.15.exe` 链接当前已被 `4.1.15.53` 覆盖，因此改从公开的 [4.1.15.13 历史归档](https://github.com/cscnk52/wechat-windows-versions/releases/tag/v4.1.15.13)获取固定版本安装器。文件大小为 `256624952` 字节，SHA256 为 `d5f3bb4232c0f172bce53141db90bf60f5f0a53eb137663ab8d32e74e04b9f4f`，与归档记录一致。Windows 签名验证确认安装器及内部 `Weixin.exe` 的腾讯签名均有效；解包后客户端 FileVersion 和 ProductVersion 均为 `4.1.15.13`，客户端 SHA256 为 `a832fb321ddb5f9701dd3a7bb1958804f09b620b9ad328f52e2e352651ab886c`。该安装器已加入来宾资料包；宿主仅作文件检查，未执行安装器或客户端。来宾安装后还需复核实际运行版本，当前结论仅覆盖文件来源、完整性及版本。
 
-下一阶段先取得足够内存余量，再按下面的兼容评估选择虚拟机软件，安装来宾并关闭主机文件夹共享、共享剪贴板和拖放，完成来宾离线验收与测试账号绑定审查。实时入口仍保持关闭，普通群收发和 dot 接入均未验证。详细下载及校验记录仅保存在本地实验目录。
+下一阶段由所有者保存工作并手动重启主机，复核安全功能、WHP 与内存余量后启动 Windows 来宾安装，再完成离线验收与测试账号绑定审查。实时入口仍保持关闭，普通群收发和 dot 接入均未验证。详细下载及校验记录仅保存在本地实验目录。
 
-### 审核等待期间的虚拟机兼容评估
+### 安装前：审核等待期间的虚拟机兼容评估
 
 只读检查确认宿主为 Windows 11 家庭版 23H2（22631.6199）、i7-13650HX，物理内存可用容量 15.63 GiB，采样时剩余 2.89 GiB；E 盘剩余 114.92 GiB，C 盘剩余 22.36 GiB。系统报告 Microsoft hypervisor 已加载，VBS 与内存完整性正在运行；Windows Hypervisor Platform、Virtual Machine Platform、WSL 可选组件均关闭。家庭版缺少完整 Hyper-V 角色，与已有安全功能使用 hypervisor 属于不同层面。[微软 Hyper-V 版本要求](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/get-started/install-hyper-v) · [VBS 状态解释](https://learn.microsoft.com/en-us/windows/security/threat-protection/device-guard/enable-virtualization-based-protection-of-code-integrity)
 
@@ -25,6 +25,18 @@ VirtualBox 7.2 官方共存方案要求 Windows Hypervisor Platform 已启用，
 VirtualBox 自定义程序安装目录及其父目录存在专门权限要求，现有 E 盘实验目录使用继承的数据盘权限。低改动方案建议软件本体使用 C 盘默认程序目录，虚拟硬盘、快照和镜像放 E 盘；若要求软件本体也位于 E 盘，则另行设计专用受保护目录。首轮使用 NAT，主机文件夹共享、剪贴板、拖放和 USB 自动连接保持关闭，文件通过已校验的只读资料光盘进入来宾。保留 VBS 的方案主要涉及可卸载软件、可恢复的平台组件开关和可独立保留的虚拟机文件，属于中低复杂度试用；关闭主机安全功能的性能路线超出本轮推荐范围。后续改用 Workstation 时，复用系统与资料 ISO 重建来宾最稳妥，虚拟磁盘、TPM 状态和快照的跨产品迁移另需验证。[Oracle 安装目录与卸载说明](https://docs.oracle.com/en/virtualization/virtualbox/7.2/user/installation.html)
 
 评估结论为：VirtualBox 值得作为审核等待期间的有限试验，前提是先解决内存余量并接受平台组件变更及重启；收益来自缩短等待和获得本机证据，尚无证据证明其 Hyper-V 性能风险已消失。本轮仅完成读取与评估，系统组件、目录权限、虚拟机软件和实时探针门禁均未修改。
+
+### 确认试用后的安装结果
+
+从 [Oracle 官方目录](https://download.oracle.com/virtualbox/7.2.20/)取得 `VirtualBox-7.2.20-175154-Win.exe`，大小为 `178192488` 字节。SHA256 为 `a81777d2b36380ce042a29e9c554cf032eb46a793f62e3cc82e7411e535c2c26`，与官方清单一致；Windows 验证 Oracle America, Inc. 数字签名有效。管理员安装步骤返回成功，命令行报告 `7.2.20r175154`。软件本体位于默认程序目录，虚拟机及安装资料位于 E 盘实验目录。
+
+安装选项仅包含基础 `VBoxApplication`，Windows Hypervisor Platform 从 Disabled 变为 Enabled，并返回需要重启；过程禁止自动重启。安装前后 VBS 状态均为运行，内存完整性均为运行。所有者随后表示可在控制面板手动开启组件，已告知此前获确认的步骤已完成启用，接下来只需重启；后续涉及 Windows 功能的操作提前提示所有者。
+
+已创建 `WeChatLab-Test`：2 个虚拟处理器、4096 MiB 内存、80 GiB 动态 VDI，配置 EFI、虚拟 TPM 2.0、Secure Boot、VBoxSVGA 与 NAT。主机文件夹共享为空，剪贴板、拖放、USB 与远程显示关闭。虚拟机目录使用仅当前用户、SYSTEM 和管理员可访问的权限。配置核查证明当前为关机状态；来宾启动、性能、运行时安全状态和账号隔离仍待验证。NAT 属于连接方式，单凭该配置不能证明来宾与宿主、局域网之间的网络隔离。
+
+VirtualBox 对准备好的 Windows 镜像识别为 `Windows11_64` / `10.0.26300.9457` / `EnterpriseEval` / `zh-CN`，报告支持自动安装。已生成自动安装文件，移除上游模板中的 CPU、RAM、TPM、Secure Boot 和存储检查绕过项；初始自动登录限定于安装阶段，并准备首次登录时清除自动登录密码的步骤。生成后的 XML 可解析，检查绕过项为空，账号与计算机名正确。初始凭据及自动安装文件保存在本机受限目录，未输出凭据或提交仓库。安装光盘与资料光盘均已配置，系统镜像及资料包哈希重新核对通过；此处记录的是安装准备，首次登录处理及 Guest Additions 的实际结果待来宾运行后验证。
+
+最后一次采样可用内存为 3.09 GiB。虚拟机保持关机，待所有者手动重启后重新评估内存，再执行来宾安装；VS Code、浏览器及正在执行的工作均保留。本阶段尚未运行微信安装器、登录测试账号或打开真实数据库入口。
 
 ## 2026-10-17：固定版本审查与离线探针
 
