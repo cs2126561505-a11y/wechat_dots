@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://gateway.example/adapter/events",
+  "account_id": "wxid_test_account",
+  "room_id": "test_room@chatroom",
+  "controlled_senders": ["wxid_controlled_human_peer"]
+}

@@ -1,4 +1,4 @@
-"""Run with python -m wechat_probe; all live output is a redacted diagnostic."""
+"""Run with python -m wechat_probe; live console output is always redacted."""
 from __future__ import annotations
 
 import argparse
@@ -153,7 +153,7 @@ def watch(args, run: Path):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Read-only test-group transport diagnostic. No send command.")
+    parser = argparse.ArgumentParser(description="Restricted test-group reader and event publisher. No WeChat send command.")
     parser.add_argument("--run", default="test-group", help="Private run name; use a new name to bind again.")
     subs = parser.add_subparsers(dest="command", required=True)
     subs.add_parser("audit")
@@ -164,6 +164,8 @@ def main(argv=None):
     p.add_argument("--room", default="test-group")
     p = subs.add_parser("watch")
     p.add_argument("--seconds", type=int, default=60)
+    p = subs.add_parser("publish")
+    p.add_argument("--seconds", type=int, default=60)
     subs.add_parser("report")
     args = parser.parse_args(argv)
     try:
@@ -172,13 +174,16 @@ def main(argv=None):
         elif args.command == "discover":
             emit(discover())
         else:
-            if args.command in ("bind", "watch"):
+            if args.command in ("bind", "watch", "publish"):
                 require_live_admission()
             run = private_run(args.run)
             if args.command == "bind":
                 bind(args, run)
             elif args.command == "watch":
                 watch(args, run)
+            elif args.command == "publish":
+                from .bridge import publish
+                publish(args, run, emit)
             else:
                 journal = Journal(run / "probe.sqlite3")
                 try:
@@ -188,7 +193,9 @@ def main(argv=None):
                     journal.close()
         return 0
     except ProbeError as exc:
-        emit({"status": "blocked", "reason": str(exc), "send_enabled": False, "dot_enabled": False})
+        state = {"status": "blocked", "reason": str(exc), "send_enabled": False}
+        state.update({"publishing": False} if args.command == "publish" else {"dot_enabled": False})
+        emit(state)
         return 2
     except KeyboardInterrupt:
         emit({"status": "stopped", "send_enabled": False})
