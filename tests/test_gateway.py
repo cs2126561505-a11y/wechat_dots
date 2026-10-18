@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from cryptography.fernet import Fernet
 
-from wechat_gateway.store import Binding, EVENT_NAME, GatewayError, Policy, Store, iso
+from wechat_gateway.store import Binding, EVENT_NAME, GatewayError, Policy, Store, canonical, iso
 from wechat_gateway.webhooks import Events, callback_parts, public_addresses, signature, signing_key
 
 
@@ -59,6 +59,29 @@ class GatewayTests(unittest.TestCase):
         draft = self.draft()
         self.store.approve("owner", draft["draft_id"], draft["content_hash"], "local-owner")
         return draft
+
+    def receipt(self, **updates):
+        return dict({"account_id": "account", "room_id": "room@chatroom", "message_id": "reply1",
+            "from_self": True, "body_sha256": hashlib.sha256(b"Reviewed reply").hexdigest(),
+            "occurred_at": self.now}, **updates)
+
+    def next_approved(self, binding=None):
+        binding = binding or self.binding
+        event = dict(self.event, message_id="msg2", occurred_at=iso(self.now))
+        event_id = self.store.ingest(binding, event)["event_id"]
+        draft = self.store.propose(binding.principal, event_id, "Reviewed reply", "key2")
+        self.store.approve(binding.principal, draft["draft_id"], draft["content_hash"], "local-owner")
+        return draft
+
+    def reopen(self):
+        self.store.close()
+        self.store = Store(self.path, (self.binding, self.other), self.policy, lambda: self.now)
+
+    def make_legacy_schema(self):
+        # Remove only the new protocol state to reproduce a pre-migration database.
+        self.store.db.execute("DROP TABLE send_receipts")
+        self.store.db.execute("DROP TABLE send_receipt_gaps")
+        self.store.db.execute("ALTER TABLE drafts DROP COLUMN execute_before")
 
     def test_default_closed_and_invalid_policy(self):
         with self.assertRaises(GatewayError):
@@ -156,6 +179,136 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(self.store.finish_send(self.binding, draft["draft_id"], receipt)["status"], "sent")
         with self.assertRaises(GatewayError):
             self.store.claim_send(self.binding, draft["draft_id"])
+
+    def test_claim_deadline_is_persisted_and_capped_by_approval(self):
+        draft = self.approved()
+        command = self.store.claim_send(self.binding, draft["draft_id"])
+        self.assertEqual(command["attempted_at"], self.now)
+        self.assertEqual(command["execute_before"], self.now + 120)
+        stored = self.store.db.execute("SELECT attempted,execute_before FROM drafts WHERE id=?",
+                                      (draft["draft_id"],)).fetchone()
+        self.assertEqual(tuple(stored), (command["attempted_at"], command["execute_before"]))
+        self.store.finish_send(self.binding, draft["draft_id"], self.receipt())
+        second = self.next_approved()
+        self.now += 850
+        command = self.store.claim_send(self.binding, second["draft_id"])
+        self.assertEqual(command["execute_before"], self.now + 50)
+        self.now += 20
+        with self.assertRaises(GatewayError):
+            self.store.claim_send(self.binding, second["draft_id"])
+        self.reopen()
+        stored = self.store.db.execute("SELECT execute_before,status FROM drafts WHERE id=?",
+                                      (second["draft_id"],)).fetchone()
+        self.assertEqual(tuple(stored), (command["execute_before"], "delivery_unknown"))
+
+    def test_receipt_after_approval_deadline_is_unknown(self):
+        draft = self.approved()
+        self.now += 890
+        command = self.store.claim_send(self.binding, draft["draft_id"])
+        self.now += 11
+        self.assertGreater(self.now, command["execute_before"])
+        result = self.store.finish_send(self.binding, draft["draft_id"], self.receipt())
+        self.assertEqual(result["status"], "delivery_unknown")
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM send_receipts").fetchone()[0], 0)
+
+    def test_only_identical_confirmed_receipt_is_idempotent(self):
+        draft = self.approved()
+        self.store.claim_send(self.binding, draft["draft_id"])
+        receipt = self.receipt()
+        result = self.store.finish_send(self.binding, draft["draft_id"], receipt)
+        self.assertEqual(self.store.finish_send(self.binding, draft["draft_id"], dict(reversed(list(receipt.items())))), result)
+        for changed in (None, dict(receipt, message_id="different"), dict(receipt, occurred_at=self.now + 1)):
+            with self.subTest(receipt=changed), self.assertRaises(GatewayError):
+                self.store.finish_send(self.binding, draft["draft_id"], changed)
+        with self.assertRaises(GatewayError):
+            self.store.finish_send(self.other, draft["draft_id"], receipt)
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM send_receipts").fetchone()[0], 1)
+        self.store.bindings = frozenset()
+        self.store.policy = Policy()
+        self.assertEqual(self.store.finish_send(self.binding, draft["draft_id"], receipt), result)
+
+    def test_unknown_attempt_never_upgrades_with_later_receipt(self):
+        draft = self.approved()
+        self.store.claim_send(self.binding, draft["draft_id"])
+        self.assertEqual(self.store.finish_send(self.binding, draft["draft_id"], None)["status"], "delivery_unknown")
+        for receipt in (None, self.receipt()):
+            with self.assertRaises(GatewayError):
+                self.store.finish_send(self.binding, draft["draft_id"], receipt)
+        self.reopen()
+        with self.assertRaises(GatewayError):
+            self.store.finish_send(self.binding, draft["draft_id"], self.receipt())
+
+    def test_receipt_identity_survives_pruning_and_restart_across_principals(self):
+        self.policy = Policy(enabled=True, transport_admitted=True, notice_confirmed=True,
+                             send_enabled=True, retention=10)
+        self.store.policy = self.policy
+        draft = self.approved()
+        self.store.claim_send(self.binding, draft["draft_id"])
+        original = self.receipt()
+        self.store.finish_send(self.binding, draft["draft_id"], original)
+        self.now += 11
+        self.store.prune()
+        self.reopen()
+        row = self.store.db.execute("SELECT text,receipt FROM drafts WHERE id=?", (draft["draft_id"],)).fetchone()
+        self.assertEqual(tuple(row), ("", None))
+        self.assertEqual(self.store.finish_send(self.binding, draft["draft_id"], original)["status"], "sent")
+        second = self.next_approved(self.other)
+        self.store.claim_send(self.other, second["draft_id"])
+        self.assertEqual(self.store.finish_send(self.other, second["draft_id"], self.receipt())["status"], "delivery_unknown")
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM send_receipts").fetchone()[0], 1)
+
+    def test_legacy_sent_receipt_is_backfilled_and_cannot_be_reused(self):
+        draft = self.approved()
+        self.store.claim_send(self.binding, draft["draft_id"])
+        receipt = self.receipt()
+        self.store.finish_send(self.binding, draft["draft_id"], receipt)
+        self.make_legacy_schema()
+        self.reopen()
+        self.assertEqual(self.store.finish_send(self.binding, draft["draft_id"], receipt)["status"], "sent")
+        self.assertEqual(self.store.db.execute("SELECT execute_before FROM drafts WHERE id=?",
+                                             (draft["draft_id"],)).fetchone()[0], self.now + 120)
+        second = self.next_approved()
+        self.store.claim_send(self.binding, second["draft_id"])
+        self.assertEqual(self.store.finish_send(self.binding, second["draft_id"], receipt)["status"], "delivery_unknown")
+
+    def test_legacy_pruned_receipt_quarantines_room_but_preserves_reads(self):
+        draft = self.approved()
+        self.store.claim_send(self.binding, draft["draft_id"])
+        self.store.finish_send(self.binding, draft["draft_id"], self.receipt())
+        self.make_legacy_schema()
+        self.store.db.execute("UPDATE drafts SET text='',receipt=NULL WHERE id=?", (draft["draft_id"],))
+        self.reopen()
+        self.assertEqual(self.store.get_event("owner", draft["event_id"])["text"], self.event["text"])
+        second = self.next_approved()
+        with self.assertRaises(GatewayError):
+            self.store.claim_send(self.binding, second["draft_id"])
+        self.reopen()
+        with self.assertRaises(GatewayError):
+            self.store.claim_send(self.binding, second["draft_id"])
+
+    def test_legacy_conflicting_receipts_quarantine_room(self):
+        first = self.approved()
+        self.store.claim_send(self.binding, first["draft_id"])
+        receipt = self.receipt()
+        self.store.finish_send(self.binding, first["draft_id"], receipt)
+        second = self.next_approved()
+        self.store.db.execute("UPDATE drafts SET status='sent',attempted=?,receipt=? WHERE id=?",
+                              (self.now, canonical(receipt), second["draft_id"]))
+        self.make_legacy_schema()
+        self.reopen()
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM send_receipts").fetchone()[0], 1)
+        self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM send_receipt_gaps").fetchone()[0], 1)
+
+    def test_legacy_sending_migrates_to_unknown_without_new_execution(self):
+        draft = self.approved()
+        command = self.store.claim_send(self.binding, draft["draft_id"])
+        self.make_legacy_schema()
+        self.now += 10
+        self.reopen()
+        row = self.store.db.execute("SELECT status,execute_before FROM drafts WHERE id=?", (draft["draft_id"],)).fetchone()
+        self.assertEqual(tuple(row), ("delivery_unknown", command["execute_before"]))
+        with self.assertRaises(GatewayError):
+            self.store.finish_send(self.binding, draft["draft_id"], self.receipt())
 
     def test_signature_matches_standard_webhook_formula(self):
         expected = base64.b64encode(hmac.new(bytes(range(32)), b"event.1800000000.{}", hashlib.sha256).digest()).decode()

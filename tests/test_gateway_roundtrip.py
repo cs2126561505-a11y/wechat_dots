@@ -141,10 +141,13 @@ class RoundtripTests(unittest.TestCase):
                 json_request("/owner/approve", {"draft_id": draft["draft_id"], "content_hash": draft["content_hash"]}, owner)
                 command = json_request("/adapter/claim", {}, adapter)["command"]
                 self.assertEqual(command["room_id"], binding.room_id)
-                result = json_request("/adapter/complete", {"draft_id": command["draft_id"], "receipt": {
+                self.assertEqual(command["execute_before"], command["attempted_at"] + 120)
+                completion = {"draft_id": command["draft_id"], "receipt": {
                     "account_id": binding.account_id, "room_id": binding.room_id, "message_id": "synthetic-outbound",
-                    "body_sha256": hashlib.sha256(b"received hi").hexdigest(), "occurred_at": time.time(), "from_self": True}}, adapter)
+                    "body_sha256": hashlib.sha256(b"received hi").hexdigest(), "occurred_at": time.time(), "from_self": True}}
+                result = json_request("/adapter/complete", completion, adapter)
                 self.assertEqual(result["status"], "sent")
+                self.assertEqual(json_request("/adapter/complete", completion, adapter), result)
                 self.assertIsNone(json_request("/adapter/claim", {}, adapter)["command"])
             finally:
                 server.should_exit = True

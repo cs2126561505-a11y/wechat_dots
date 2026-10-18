@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import re
 import sqlite3
 import time
@@ -127,24 +128,48 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def gateway_post(endpoint, token, event):
-    require_live_admission()
+def gateway_post(endpoint, token, event, expected_lease):
+    # Queue entries belong to the read session that produced them. A new valid
+    # lease (even for the same guest) must not authorize that session implicitly.
+    if require_live_admission() != expected_lease:
+        raise ProbeError("Publisher admission changed; publishing stopped.")
     request = urllib.request.Request(endpoint, data=canonical(event).encode(),
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"}, method="POST")
     try:
         response = urllib.request.build_opener(NoRedirect()).open(request, timeout=10)
+        with response:
+            if response.status != 200:
+                raise ProbeError("Gateway acknowledgement is invalid.")
+            declared = response.getheader("Content-Length")
+            if declared is not None:
+                if not re.fullmatch(r"[0-9]{1,6}", declared) or int(declared) > 16384:
+                    raise ProbeError("Gateway acknowledgement is invalid.")
+                declared = int(declared)
+            # read() can wait indefinitely when a peer trickles bytes before
+            # each socket timeout. read1() returns after one underlying read,
+            # letting us enforce a total body budget as well as a size limit.
+            deadline, parts, length = time.monotonic() + 10, [], 0
+            while length < 16385:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Acknowledgement deadline exceeded.")
+                part = response.read1(min(4096, 16385 - length))
+                if not part:
+                    break
+                parts.append(part)
+                length += len(part)
+            if length > 16384:
+                raise ProbeError("Gateway acknowledgement is invalid.")
+            body = b"".join(parts)
+            if declared is not None and length != declared:
+                raise http.client.IncompleteRead(body)
     except urllib.error.HTTPError as exc:
         code = exc.code
         exc.close()
         if code in (408, 429) or 500 <= code <= 599:
             return None
         raise ProbeError("Gateway rejected the event; publishing stopped.") from None
-    except (OSError, urllib.error.URLError):
+    except (OSError, urllib.error.URLError, http.client.HTTPException):
         return None
-    with response:
-        body = response.read(16385)
-        if response.status != 200 or len(body) > 16384:
-            raise ProbeError("Gateway acknowledgement is invalid.")
     try:
         return json.loads(body)
     except (ValueError, UnicodeError):
@@ -177,7 +202,7 @@ def settings(run, config):
 
 
 def publish(args, run: Path, emit):
-    require_live_admission()
+    lease = require_live_admission()
     if not 1 <= args.seconds <= 900:
         raise ProbeError("Publishing duration must be between 1 and 900 seconds.")
     journal = Journal(run / "probe.sqlite3")
@@ -215,7 +240,7 @@ def publish(args, run: Path, emit):
                 if rows:
                     box.commit_batch(shard, rows[-1]["local_id"], events)
             for _ in range(10):
-                if time.monotonic() >= deadline or not box.deliver_one(lambda event: gateway_post(data["endpoint"], token, event), time.time()):
+                if time.monotonic() >= deadline or not box.deliver_one(lambda event: gateway_post(data["endpoint"], token, event, lease), time.time()):
                     break
             time.sleep(1)
         emit(box.summary())

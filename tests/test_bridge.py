@@ -1,10 +1,11 @@
 import json
+import http.client
 import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from wechat_probe import __main__ as cli
 from wechat_probe.bridge import Outbox, gateway_post, normalized, publish, settings
@@ -15,7 +16,7 @@ from wechat_gateway.store import Binding, Policy, Store
 class BridgeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.row = {"local_type": 1, "content": "hi", "sender_username": "wxid_peer",
                     "source": "<msgsource><atuserlist>wxid_self</atuserlist></msgsource>",
                     "create_time": 1000, "local_id": 7, "shard": "message/message_0.db"}
@@ -107,7 +108,7 @@ class BridgeTests(unittest.TestCase):
             with self.assertRaises(ProbeError):
                 publish(SimpleNamespace(seconds=1), self.root, Mock())
             with self.assertRaises(ProbeError):
-                gateway_post("https://gateway.example/adapter/events", "secret", self.event())
+                gateway_post("https://gateway.example/adapter/events", "secret", self.event(), {})
             journal.assert_not_called()
             opener.assert_not_called()
 
@@ -127,14 +128,66 @@ class BridgeTests(unittest.TestCase):
                 settings(self.root, config)
 
     def test_http_error_categories_and_redirect_stop(self):
-        with patch("wechat_probe.bridge.require_live_admission"), patch("urllib.request.build_opener") as build:
+        lease = {"session": "original"}
+        with patch("wechat_probe.bridge.require_live_admission", return_value=lease), patch("urllib.request.build_opener") as build:
             for status in (401, 403, 302, 307, 400):
                 build.return_value.open.side_effect = urllib.error.HTTPError("https://gateway.example", status, "private", {}, None)
                 with self.assertRaises(ProbeError):
-                    gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event())
+                    gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), lease)
             for status in (408, 429, 503):
                 build.return_value.open.side_effect = urllib.error.HTTPError("https://gateway.example", status, "private", {}, None)
-                self.assertIsNone(gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event()))
+                self.assertIsNone(gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), lease))
+
+    def test_changed_admission_stops_before_network(self):
+        with patch("wechat_probe.bridge.require_live_admission", return_value={"session": "replacement"}), patch("urllib.request.build_opener") as build:
+            with self.assertRaisesRegex(ProbeError, "admission changed"):
+                gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), {"session": "original"})
+            build.assert_not_called()
+
+    def response(self, parts, length=None):
+        response = MagicMock(status=200)
+        response.__enter__.return_value = response
+        response.getheader.return_value = length
+        response.read1.side_effect = parts
+        return response
+
+    def test_response_transport_failure_retries_without_discarding_payload(self):
+        lease = {"session": "original"}
+        self.box.commit_batch(self.row["shard"], 7, [self.event()])
+        with patch("wechat_probe.bridge.require_live_admission", return_value=lease), patch("urllib.request.build_opener") as build:
+            for parts, length in (([TimeoutError("private response")], None),
+                                  ([http.client.IncompleteRead(b"private response")], None),
+                                  ([b'{"status":', b''], "100")):
+                response = self.response(parts, length)
+                build.return_value.open.return_value = response
+                result = gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), lease)
+                self.assertIsNone(result)
+                response.__exit__.assert_called_once()
+            self.box.deliver_one(lambda event: result, 1005)
+            self.assertEqual(tuple(self.box.db.execute("SELECT status,data IS NOT NULL FROM outbox").fetchone()), ("pending", 1))
+
+    def test_response_body_has_time_and_size_bounds(self):
+        lease = {"session": "original"}
+        with patch("wechat_probe.bridge.require_live_admission", return_value=lease), patch("urllib.request.build_opener") as build:
+            response = self.response([b'{', b' ', b' '])
+            build.return_value.open.return_value = response
+            with patch("wechat_probe.bridge.time.monotonic", side_effect=[0, 0, 6, 12]):
+                self.assertIsNone(gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), lease))
+            self.assertEqual(response.read1.call_count, 2)
+            response.__exit__.assert_called_once()
+            response = self.response([b'x' * 4096] * 4 + [b'x'])
+            build.return_value.open.return_value = response
+            with self.assertRaises(ProbeError):
+                gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), lease)
+            response.__exit__.assert_called_once()
+
+    def test_complete_response_acknowledgement(self):
+        lease = {"session": "original"}
+        body = b'{"status":"duplicate","event_id":"evt_' + b'a' * 64 + b'"}'
+        response = self.response([body[:10], body[10:], b''], str(len(body)))
+        with patch("wechat_probe.bridge.require_live_admission", return_value=lease), patch("urllib.request.build_opener") as build:
+            build.return_value.open.return_value = response
+            self.assertEqual(gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), lease), json.loads(body))
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -15,6 +16,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parents[1]
 EVENT_NAME = "wechat.group_message.created"
+RECEIPT_FIELDS = frozenset({
+    "account_id", "room_id", "message_id", "body_sha256", "occurred_at", "from_self"})
 
 
 def canonical(value) -> str:
@@ -27,6 +30,16 @@ def digest(value) -> str:
 
 def iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _receipt_shape(receipt) -> bool:
+    return (isinstance(receipt, dict) and set(receipt) == RECEIPT_FIELDS
+        and isinstance(receipt["message_id"], str) and 0 < len(receipt["message_id"]) <= 256
+        and receipt["from_self"] is True
+        and isinstance(receipt["body_sha256"], str) and len(receipt["body_sha256"]) == 64
+        and all(c in "0123456789abcdef" for c in receipt["body_sha256"])
+        and type(receipt["occurred_at"]) in (int, float)
+        and (type(receipt["occurred_at"]) is int or math.isfinite(receipt["occurred_at"])))
 
 
 class GatewayError(ValueError):
@@ -93,7 +106,7 @@ class Store:
           idem TEXT NOT NULL, text TEXT NOT NULL, hash TEXT NOT NULL,
           policy TEXT NOT NULL, created REAL NOT NULL, expires REAL NOT NULL,
           status TEXT NOT NULL, approved_by TEXT, approved REAL,
-          attempted REAL, receipt TEXT,
+          attempted REAL, receipt TEXT, execute_before REAL,
           UNIQUE(principal, event), UNIQUE(principal, idem));
         CREATE TABLE IF NOT EXISTS subscriptions (
           id TEXT PRIMARY KEY, principal TEXT NOT NULL, account TEXT NOT NULL,
@@ -106,12 +119,46 @@ class Store:
           status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
           next_at REAL NOT NULL, lease_until REAL, last_code INTEGER,
           PRIMARY KEY(subscription,event));
+        CREATE TABLE IF NOT EXISTS send_receipts (
+          account TEXT NOT NULL, room TEXT NOT NULL, message TEXT NOT NULL,
+          draft TEXT NOT NULL UNIQUE REFERENCES drafts(id), receipt_hash TEXT NOT NULL,
+          PRIMARY KEY(account,room,message));
+        CREATE TABLE IF NOT EXISTS send_receipt_gaps (
+          account TEXT NOT NULL, room TEXT NOT NULL,
+          PRIMARY KEY(account,room));
         """)
         self.event_schema = json.loads((ROOT / "contracts/message-event.schema.json").read_text("utf-8"))
         self.validator = Draft202012Validator(self.event_schema, format_checker=FormatChecker())
         # After a crash, desktop execution may already have happened. Never resend.
         with self.transaction():
+            self._migrate_send_state()
             self.db.execute("UPDATE drafts SET status='delivery_unknown' WHERE status='sending'")
+
+    def _migrate_send_state(self):
+        # Keep identity/hash tombstones independently of the prunable receipt body.
+        if "execute_before" not in {r["name"] for r in self.db.execute("PRAGMA table_info(drafts)")}:
+            self.db.execute("ALTER TABLE drafts ADD COLUMN execute_before REAL")
+        self.db.execute("""UPDATE drafts SET execute_before=MIN(expires,attempted+120)
+            WHERE attempted IS NOT NULL AND execute_before IS NULL""")
+        rows = self.db.execute("""SELECT d.* FROM drafts d LEFT JOIN send_receipts s ON s.draft=d.id
+            WHERE d.status='sent' AND s.draft IS NULL""").fetchall()
+        for row in rows:
+            try:
+                receipt = json.loads(row["receipt"] or "null")
+            except (TypeError, ValueError):
+                receipt = None
+            if (_receipt_shape(receipt) and receipt["account_id"] == row["account"]
+                    and receipt["room_id"] == row["room"]):
+                try:
+                    self.db.execute("INSERT INTO send_receipts VALUES (?,?,?,?,?)", (
+                        row["account"], row["room"], receipt["message_id"], row["id"], digest(receipt)))
+                    continue
+                except sqlite3.IntegrityError:
+                    pass
+            # Legacy pruning or conflicting receipts can make old message identities
+            # unrecoverable. Preserve reads, but fail closed for future room sends.
+            self.db.execute("INSERT OR IGNORE INTO send_receipt_gaps VALUES (?,?)",
+                            (row["account"], row["room"]))
 
     @contextmanager
     def transaction(self):
@@ -252,38 +299,52 @@ class Store:
         if not self.policy.send_enabled:
             raise GatewayError("Desktop sending is disabled.")
         with self.transaction():
+            now = self.clock()
             row = self.db.execute("SELECT * FROM drafts WHERE id=? AND principal=? AND account=? AND room=?",
                 (draft_id, binding.principal, binding.account_id, binding.room_id)).fetchone()
             if row is None or row["status"] != "approved" or not row["approved_by"]:
                 raise GatewayError("Independently approved draft required.")
-            if row["expires"] <= self.clock() or row["policy"] != self.policy_hash():
+            if row["expires"] <= now or row["policy"] != self.policy_hash():
                 raise GatewayError("Approval expired or policy changed.")
             uncertain = self.db.execute("SELECT 1 FROM drafts WHERE account=? AND room=? AND status IN ('sending','delivery_unknown')",
                                         (binding.account_id, binding.room_id)).fetchone()
+            gap = self.db.execute("SELECT 1 FROM send_receipt_gaps WHERE account=? AND room=?",
+                                  (binding.account_id, binding.room_id)).fetchone()
             counts = self.db.execute("""SELECT COUNT(*),SUM(CASE WHEN account=? AND room=? THEN 1 ELSE 0 END)
-                FROM drafts WHERE attempted>=?""", (binding.account_id, binding.room_id, self.clock() - 60)).fetchone()
-            if uncertain or counts[0] >= self.policy.global_rate or (counts[1] or 0) >= self.policy.room_rate:
+                FROM drafts WHERE attempted>=?""", (binding.account_id, binding.room_id, now - 60)).fetchone()
+            if uncertain or gap or counts[0] >= self.policy.global_rate or (counts[1] or 0) >= self.policy.room_rate:
                 raise GatewayError("Room delivery is blocked or rate limited.")
-            self.db.execute("UPDATE drafts SET status='sending',attempted=? WHERE id=?", (self.clock(), draft_id))
+            execute_before = min(row["expires"], now + 120)
+            self.db.execute("UPDATE drafts SET status='sending',attempted=?,execute_before=? WHERE id=?",
+                            (now, execute_before, draft_id))
             return {"draft_id": draft_id, "account_id": row["account"], "room_id": row["room"],
-                    "text": row["text"], "content_hash": row["hash"], "attempted_at": self.clock()}
+                    "text": row["text"], "content_hash": row["hash"], "attempted_at": now,
+                    "execute_before": execute_before}
 
     def finish_send(self, binding: Binding, draft_id: str, receipt: dict | None):
         # Record an outcome even if access has since been revoked; this never initiates a send.
         with self.transaction():
             row = self.db.execute("SELECT * FROM drafts WHERE id=? AND principal=? AND account=? AND room=?",
                 (draft_id, binding.principal, binding.account_id, binding.room_id)).fetchone()
+            if row is not None and row["status"] == "sent" and _receipt_shape(receipt):
+                previous = self.db.execute("SELECT receipt_hash FROM send_receipts WHERE draft=?",
+                                           (draft_id,)).fetchone()
+                if previous is not None and previous[0] == digest(receipt):
+                    return {"draft_id": draft_id, "status": "sent"}
             if row is None or row["status"] != "sending":
                 raise GatewayError("No matching send attempt.")
-            verified = isinstance(receipt, dict) and set(receipt) == {
-                "account_id", "room_id", "message_id", "body_sha256", "occurred_at", "from_self"}
+            verified = _receipt_shape(receipt)
             if verified:
                 verified = (receipt["account_id"] == row["account"] and receipt["room_id"] == row["room"]
-                    and isinstance(receipt["message_id"], str) and 0 < len(receipt["message_id"]) <= 256
-                    and receipt["from_self"] is True
                     and receipt["body_sha256"] == hashlib.sha256(row["text"].encode()).hexdigest()
-                    and type(receipt["occurred_at"]) in (int, float)
-                    and row["attempted"] - 2 <= receipt["occurred_at"] <= min(row["attempted"] + 120, self.clock() + 30))
+                    and row["execute_before"] is not None
+                    and row["attempted"] - 2 <= receipt["occurred_at"] <= min(row["execute_before"], self.clock() + 30))
+            if verified:
+                try:
+                    self.db.execute("INSERT INTO send_receipts VALUES (?,?,?,?,?)", (
+                        row["account"], row["room"], receipt["message_id"], draft_id, digest(receipt)))
+                except sqlite3.IntegrityError:
+                    verified = False
             status = "sent" if verified else "delivery_unknown"
             self.db.execute("UPDATE drafts SET status=?,receipt=? WHERE id=?",
                             (status, canonical(receipt) if verified else None, draft_id))
@@ -294,6 +355,7 @@ class Store:
             self.db.execute("DELETE FROM subscriptions WHERE expires<=?", (self.clock(),))
             self.db.execute("UPDATE subscriptions SET old_secret=NULL,rotate_until=NULL WHERE rotate_until<=?", (self.clock(),))
             self.db.execute("UPDATE drafts SET status='expired' WHERE expires<=? AND status IN ('draft_pending','approved')", (self.clock(),))
-            # Keep only non-content tombstones for unresolved send attempts; they block resends.
+            # Keep non-content draft/receipt tombstones: unresolved attempts block
+            # the room, and confirmed message identities remain reserved forever.
             self.db.execute("UPDATE drafts SET text='',receipt=NULL WHERE created<?", (self.clock() - self.policy.retention,))
             self.db.execute("UPDATE events SET data='{}' WHERE received<?", (self.clock() - self.policy.retention,))

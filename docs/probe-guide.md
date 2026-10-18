@@ -62,6 +62,22 @@ $probePython = ".\.venv-probe\Scripts\python.exe"
 
 `bridge.sqlite3` 原子保存读取游标与待投递正文。网络失败或接收回执丢失后，使用同一消息标识重试，网关重复接收只保留一条事件；账号、进程或配置变化时停止恢复。HTTPS 校验证书并拒绝重定向，认证失败和其他确定的请求错误停止本次运行。过期消息停止投递，确认或过期后逻辑清空待投递正文；私密 SQLite 文件的物理清理随实验缓存统一安排。命令只输出聚合计数，排除正文、真实标识和凭据。离线测试已覆盖筛选、断点恢复、丢失回执、冲突回滚及隔离检查，实际来宾与公网组合尚待验收。
 
+## 只读界面能力检查
+
+`wechat_probe.ui_probe` 用于判断当前微信窗口是否直接提供 Windows UI Automation 控件信息，为后续发送方案提供证据。它使用 Windows 自带的 `UIAutomationClient`、`UIAutomationTypes` 和隐藏的 PowerShell 工作进程，沿控件树读取属性，无需安装额外 Python 包。接口依据微软的 [AutomationElement 文档](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.automationelement)和 [TreeWalker 文档](https://learn.microsoft.com/en-us/dotnet/api/system.windows.automation.treewalker)；工作进程采用独立的 MTA 线程环境，符合[客户端线程说明](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-threading)。
+
+入口先核验现有专用来宾许可。窗口筛选使用该许可绑定的主进程 ID，继续核对进程创建时间、当前 Windows 会话和每个控件的进程归属。运行前后许可必须一致。该命令仍要求当前 SMB 检查等隔离条件有效；准备好许可后，在专用来宾运行：
+
+```powershell
+& .\.venv-probe\Scripts\python.exe -m wechat_probe.ui_probe --run ui-readonly --seconds 15 --max-nodes 256
+```
+
+默认观察上限为 15 秒、256 个节点、8 层深度和 16 个匹配窗口；可将时间调整到最多 30 秒。独立父进程另留 10 秒给启动、编译及退出，超时会终止工作进程。工作进程遵循来宾已有的 PowerShell 执行策略，策略阻止启动时返回失败。控件提供方卡住、窗口消失或达到限制时，结果保持受限或失败状态，不能据此推断微信完全缺少辅助功能支持。
+
+详细报告保存到来宾 `.runtime/ui-readonly/ui-snapshot-<本次随机编号>.json`，包含有限长控件名称、类型、AutomationId、类名及 Text/Value pattern 是否可用。名称本身可能包含会话标题或消息正文，因此报告留在来宾私密目录。命令行只输出控件类型与数量、输入候选数、模式数量和固定状态；工作进程的标准输出与错误输出均丢弃。密码控件名称被留空，输入值和 TextPattern 中的文本不读取。
+
+该组件只观察属性，绝无点击、焦点切换、键入、发送或辅助功能设置变更，也不加载上游界面模块及 `ensure_materialized` 路径。它没有进程内存读写或注入接口。报告中的输入候选与模式可用标志只说明接口暴露情况，尚未证明可编辑、能够定位真实群 ID 或可以可靠确认发送结果。本组件已完成离线门禁、超时、输出脱敏和报告验证；真实来宾的控件能力仍需单独实测。
+
 ## 记录与停止
 
 公开仓库仅保存版本、哈希、场景通过/未通过结论和合成样例。原始消息、成员 ID、账号目录、密钥与解密文件留在专用环境内。测试结束后撤销准入并停止辅助检查，再按所有者需要保留或清理已生成的私密缓存。
