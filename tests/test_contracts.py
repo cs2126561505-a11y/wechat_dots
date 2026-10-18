@@ -128,6 +128,7 @@ class ContractTests(unittest.TestCase):
 
     def test_tool_inputs_accept_minimal_valid_samples(self) -> None:
         samples = {
+            "wechat_get_connection": {},
             "wechat_get_event": {"event_id": "evt_synthetic_001"},
             "wechat_get_context": {"event_id": "evt_synthetic_001", "limit": 20},
             "wechat_propose_reply": {"event_id": "evt_synthetic_001",
@@ -200,7 +201,7 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("wechat_send_reply", self.catalog["default_exposed_tools"])
         self.assertEqual(
             set(self.catalog["default_exposed_tools"]),
-            {"wechat_get_event", "wechat_get_context", "wechat_propose_reply"},
+            {"wechat_get_connection", "wechat_get_event", "wechat_get_context", "wechat_propose_reply"},
         )
 
 

@@ -1,0 +1,4 @@
+# Gateway runtime, independent of the Windows-only WeChat reader.
+jsonschema[format]==4.26.0
+cryptography==48.0.0
+uvicorn==0.53.0

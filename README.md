@@ -1,12 +1,12 @@
 # wechat_dots
 
-将现有 ChatGPT dot 接入指定的普通微信群。目标是通过程序化读写接口完成群消息触发、理解和回复。核查日期：2026-10-17。
+将现有 ChatGPT dot 接入指定的普通微信群。目标是通过程序化读写接口完成群消息触发、理解和回复。核查日期：2026-10-18。
 
 ## 当前选型
 
-当前决策是保留微信 `4.1.15.13`，优先审查 `wechatauto-replica 1.2.6.1`（源码提交 `62503d7`），先验证 `test-group` 收发。已实现默认关闭的读取探针原型与离线测试；候选尚未通过实机准入。
+当前保留微信 `4.1.15.13`，使用固定的 `wechatauto-replica 1.2.6.1` 数据库模块（源码提交 `62503d7`）验证 `test-group`。专用来宾已取得四类消息对照，真实 @ 正向证据和持久化去重已核对。文本网关已部署，HTTPS、OAuth 和 MCP 目录检查通过；实际 dot 唤醒与群回复仍待验收。
 
-日常电脑同时保存主账号与测试账号的数据。源码审查发现，按账号选目录不能限制取密钥时的进程内存扫描范围。因此当前电脑不进行取密钥或解密；所有者已选择专用 Windows 虚拟机或备用电脑，仅登录测试账号。代码中的隔离门禁在验证环境之前无条件阻止 `bind`、`watch` 和底层读取入口，命令行与环境变量均不能绕过。详见[候选审查与隔离结论](docs/replica-audit.md)。
+日常电脑同时保存主账号与测试账号的数据。源码审查发现，按账号选目录不能限制取密钥时的进程内存扫描范围。所有者已建立专用 Windows 虚拟机，仅登录测试账号；实时数据库操作限定在来宾内。代码在 `bind`、`watch` 和底层读取入口核验短时准入，绑定隔离环境、账号和微信进程；校验失败即停止读取。详见[候选审查与隔离结论](docs/replica-audit.md)和[验证记录](docs/validation.md)。
 
 WeChatFerry 上游于 2026-07-10 归档，最新发布页列出 `v39.5.2` 配套微信 `3.9.12.51`。Wechaty 的 PadLocal 具有个人微信与群操作接口文档，其凭据申请入口在 2026 年有失效报告。两者当前都处于准入验证阶段。[WeChatFerry 发布页](https://github.com/lich0821/WeChatFerry/releases/latest) · [PadLocal](https://github.com/wechaty/puppet-padlocal) · [入口问题报告](https://github.com/wechaty/puppet-padlocal/issues/358)
 
@@ -19,7 +19,7 @@ OpenAI 提供 dots 的 MCP Events 接入机制，网关负责实现事件订阅�
 
 ## 接下来验证什么
 
-先准备专用 Windows 测试环境，核对文件、进程和共享资源的隔离，再审阅是否允许只读探针运行。真实群 ID、真实 @、手打假 @ 和自身消息验证通过后，才研究固定回复的稳定目标绑定及发送确认。当前原型没有发送功能。迁移与测试步骤见[探针使用说明](docs/probe-guide.md)，完整停止条件见[通道验证计划](docs/transport-validation.md)。
+下一步接入实际 dot，验证订阅和事件唤醒；同时补齐专用来宾实时采集与桌面目标绑定。普通消息和手打假 @ 缺少目标字段时保持未知并跳过触发。首条回复需要所有者批准精确正文、原群回读和接收端确认。当前部署的采集与发送关闭。见[实验网关](docs/gateway.md)、[探针说明](docs/probe-guide.md)和[通道验证计划](docs/transport-validation.md)。
 
 ## 仓库内容
 
@@ -27,7 +27,7 @@ OpenAI 提供 dots 的 MCP Events 接入机制，网关负责实现事件订阅�
 
 [群策略](config/group-policy.example.json) 与[消息事件](examples/message-event.json) 使用 `0.2` 版项目契约，范围固定为普通微信群。默认接入关闭、白名单为空、草稿模式。[工具契约](contracts/tools.json) 保留读取、草稿和审核后发送的设计。
 
-当前交付包括文档、配置、Schema、隔离门禁、只读探针原型和离线测试。运行中的网关、真实群收发及 dot 事件唤醒尚未验证。正式策略和工具契约保持关闭；探针不是新增的生产通道。仓库使用合成数据，私密状态、候选源码缓存与虚拟环境均排除在版本控制之外。
+当前交付包括隔离读取探针、OAuth、MCP 事件订阅、持久化队列、审核状态机与合成 HTTP 回路测试。运行网关使用独立私密配置，示例见 `config/gateway.example.json`；原群策略文件仍是规划契约。仓库使用合成数据，私密状态、凭据、候选源码缓存与虚拟环境均排除在版本控制之外。
 
 ## 离线检查
 
@@ -37,6 +37,7 @@ OpenAI 提供 dots 的 MCP Events 接入机制，网关负责实现事件订阅�
 python -m venv .venv
 # 激活环境：Linux/macOS 用 source .venv/bin/activate；Windows 使用相应激活脚本。
 python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-probe.txt -r requirements-gateway.txt
 python -m unittest discover -s tests -v
 ```
 
