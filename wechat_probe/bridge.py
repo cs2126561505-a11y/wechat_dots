@@ -5,6 +5,7 @@ import json
 import http.client
 import re
 import sqlite3
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -168,7 +169,9 @@ def gateway_post(endpoint, token, event, expected_lease):
         if code in (408, 429) or 500 <= code <= 599:
             return None
         raise ProbeError("Gateway rejected the event; publishing stopped.") from None
-    except (OSError, urllib.error.URLError, http.client.HTTPException):
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
+        if isinstance(getattr(exc, "reason", exc), ssl.SSLCertVerificationError):
+            raise ProbeError("Gateway TLS certificate verification failed; publishing stopped.") from None
         return None
     try:
         return json.loads(body)

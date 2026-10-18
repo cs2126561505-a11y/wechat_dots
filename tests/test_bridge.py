@@ -1,6 +1,7 @@
 import json
 import http.client
 import tempfile
+import ssl
 import unittest
 import urllib.error
 from pathlib import Path
@@ -143,6 +144,15 @@ class BridgeTests(unittest.TestCase):
             with self.assertRaisesRegex(ProbeError, "admission changed"):
                 gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), {"session": "original"})
             build.assert_not_called()
+
+    def test_certificate_failure_stops_instead_of_retrying(self):
+        lease = {"session": "original"}
+        with patch("wechat_probe.bridge.require_live_admission", return_value=lease), patch("urllib.request.build_opener") as build:
+            failure = ssl.SSLCertVerificationError(1, "private diagnostic")
+            for error in (failure, urllib.error.URLError(failure)):
+                build.return_value.open.side_effect = error
+                with self.assertRaisesRegex(ProbeError, "TLS certificate verification failed"):
+                    gateway_post("https://gateway.example/adapter/events", "x" * 43, self.event(), lease)
 
     def response(self, parts, length=None):
         response = MagicMock(status=200)

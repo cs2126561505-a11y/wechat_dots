@@ -96,8 +96,9 @@ def _ui(ui, process_json, title, marker, text, now, hwnd=None):
     _check(_time(ui.get("observed_at")) and 0 <= now - ui["observed_at"] <= 5)
     _check(_json(ui.get("process")) == process_json and type(ui.get("hwnd")) is int and ui["hwnd"] > 0)
     _check(hwnd is None or ui["hwnd"] == hwnd)
+    _check(marker is not None or ui.get("source") == "native-uia")
     _check(ui.get("chat_type") == "group" and ui.get("title") == title
-           and ui.get("visible_marker") == marker and ui.get("input_text") == text
+           and (marker is None or ui.get("visible_marker") == marker) and ui.get("input_text") == text
            and ui.get("foreground") is True and ui.get("input_focused") is True)
     return ui["hwnd"]
 
@@ -115,15 +116,54 @@ class SendPlan:
     run_hash: str
     process_json: str = field(repr=False)
     baseline: tuple
-    challenge: Challenge = field(repr=False)
+    challenge: Challenge | None = field(repr=False)
     hwnd: int
     evidence_hash: str
 
     def fingerprint(self):
         return digest(_json([self.draft_id, self.account_id, self.room_id, self.body_sha256,
             self.command_hash, self.attempted_at, self.execute_before, self.run_hash,
-            self.process_json, self.baseline, self.challenge.marker, self.challenge.peer,
-            self.challenge.issued_at, self.challenge.baseline, self.hwnd, self.evidence_hash]))
+            self.process_json, self.baseline,
+            None if self.challenge is None else [self.challenge.marker, self.challenge.peer,
+                self.challenge.issued_at, self.challenge.baseline], self.hwnd, self.evidence_hash]))
+
+
+def validate_bound_command(command, run, process, contacts, baseline, now, *, local_probe=False):
+    """Use complete exact contact matches plus the actual native group input.
+
+    A display name is never converted into an ID: the caller freshly queries
+    all exact nickname/remark hits and proves the already-bound ID is unique.
+    The native executor must also recheck title, group header, input ownership,
+    full body and foreground immediately before its single Invoke action.
+    Local transport probes have explicit owner approval outside the gateway;
+    their probe_ IDs are distinct from gateway-approved draft_ commands.
+    """
+    run_hash = _run(run, process)
+    _check(isinstance(command, dict) and set(command) == {"draft_id", "account_id", "room_id", "text",
+        "content_hash", "attempted_at", "execute_before"})
+    prefix = "probe_" if local_probe else "draft_"
+    _check(isinstance(command["draft_id"], str) and re.fullmatch(prefix + r"[0-9a-f]{64}", command["draft_id"]))
+    _check(isinstance(command["content_hash"], str) and re.fullmatch(r"[0-9a-f]{64}", command["content_hash"]))
+    _check((command["account_id"], command["room_id"]) == (run["account_id"], run["room_id"]))
+    text = command["text"]
+    _check(isinstance(text, str) and 1 <= len(text) <= 800 and bool(text.strip())
+           and not any(ord(c) < 32 for c in text), "A single-line approved text body is required.")
+    _check(all(_time(x) for x in (now, command["attempted_at"], command["execute_before"])))
+    _check(run["started_at"] <= command["attempted_at"] <= now < command["execute_before"]
+           <= command["attempted_at"] + 120)
+    unique_target(contacts, run["room_name"], run["room_id"])
+    cursors = _baseline(baseline)
+    return run_hash, text, cursors
+
+
+def prepare_bound_send(command, run, process, contacts, baseline, ui, now, *, local_probe=False):
+    run_hash, text, cursors = validate_bound_command(command, run, process, contacts, baseline, now,
+        local_probe=local_probe)
+    process_json = _json(process)
+    hwnd = _ui(ui, process_json, run["room_name"], None, text, now)
+    return SendPlan(command["draft_id"], run["account_id"], run["room_id"], text, digest(text),
+        digest(_json(command)), command["attempted_at"], command["execute_before"], run_hash,
+        process_json, cursors, None, hwnd, ui["evidence_hash"])
 
 
 def prepare_send(command, run, process, contacts, baseline, challenge, marker_db, ui, now):
@@ -181,15 +221,16 @@ class ActionLedger:
         _check(isinstance(plan, SendPlan) and _run(run, process) == plan.run_hash
                and _json(process) == plan.process_json and digest(plan.text) == plan.body_sha256
                and (plan.account_id, plan.room_id) == (run["account_id"], run["room_id"])
-               and plan.challenge.run_hash == plan.run_hash)
+               and (plan.challenge is None or plan.challenge.run_hash == plan.run_hash))
         _check(all(_time(x) for x in (now, plan.attempted_at, plan.execute_before))
                and run["started_at"] <= plan.attempted_at <= now < plan.execute_before <= plan.attempted_at + 120
-               and 0 <= now - plan.challenge.issued_at <= 120)
-        _ui(ui, plan.process_json, run["room_name"], plan.challenge.marker, plan.text, now, plan.hwnd)
+               and (plan.challenge is None or 0 <= now - plan.challenge.issued_at <= 120))
+        marker = None if plan.challenge is None else plan.challenge.marker
+        _ui(ui, plan.process_json, run["room_name"], marker, plan.text, now, plan.hwnd)
         try:
             with self.db:
                 self.db.execute("INSERT INTO consumed VALUES (?,?,?,?,?,?)", (plan.draft_id, plan.fingerprint(),
-                    digest(plan.challenge.marker), now, plan.execute_before, ui["evidence_hash"]))
+                    digest(plan.draft_id if marker is None else marker), now, plan.execute_before, ui["evidence_hash"]))
         except sqlite3.IntegrityError:
             raise ProbeError("Draft or marker already consumed; desktop action must not repeat.") from None
         return {"draft_id": plan.draft_id, "consumed_at": now, "execute_before": plan.execute_before}

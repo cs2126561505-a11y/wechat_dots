@@ -147,10 +147,10 @@ class ContractTests(unittest.TestCase):
             with self.subTest(field=key), self.assertRaises(ValidationError):
                 self.tool_validator("wechat_send_reply").validate(candidate)
 
-    def test_draft_requires_key_and_bounded_nonblank_text(self) -> None:
+    def test_draft_requires_key_and_bounded_text(self) -> None:
         valid = {"event_id": "evt_synthetic_001", "text": "草稿",
                  "idempotency_key": "key_synthetic_001"}
-        for text in ("", "   ", "x" * 801):
+        for text in ("", "x" * 801):
             candidate = dict(valid, text=text)
             with self.subTest(text_length=len(text)), self.assertRaises(ValidationError):
                 self.tool_validator("wechat_propose_reply").validate(candidate)

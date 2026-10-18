@@ -1,12 +1,13 @@
 """Synthetic send evidence only; no desktop, WeChat data or network access."""
-from dataclasses import replace
+from dataclasses import asdict, replace
+import json
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from wechat_probe.core import ProbeError, digest
-from wechat_probe.send_guard import ActionLedger, make_challenge, prepare_send, unique_target
+from wechat_probe.send_guard import ActionLedger, SendPlan, make_challenge, prepare_bound_send, prepare_send, unique_target
 
 
 class SendGuardTests(unittest.TestCase):
@@ -182,6 +183,43 @@ class SendGuardTests(unittest.TestCase):
             self.ledger.confirm_receipt(plan, scan, 1005)
         with self.assertRaises(ProbeError):
             self.ledger.consume(plan, self.run, self.process, self.ui, 1003)
+
+    def bound_plan(self, **changes):
+        args = dict(command=self.command, run=self.run, process=self.process, contacts=self.contacts,
+            baseline=self.baseline, ui=self.ui, now=1003)
+        args.update(changes)
+        return prepare_bound_send(**args)
+
+    def test_native_bound_send_persists_once_and_confirms_same_room_receipt(self):
+        plan = self.bound_plan()
+        self.assertIsNone(plan.challenge)
+        self.ledger.consume(plan, self.run, self.process, self.ui, 1003)
+        restored = SendPlan(**json.loads(json.dumps(asdict(plan))))
+        self.assertEqual(restored.fingerprint(), plan.fingerprint())
+        self.assertTrue(self.ledger.confirm_receipt(restored, self.scan(), 1005)['from_self'])
+        with self.assertRaises(ProbeError):
+            self.ledger.consume(restored, self.run, self.process, self.ui, 1003)
+
+    def test_native_bound_send_requires_unique_group_fresh_exact_editable_ui(self):
+        for change in ({'source':'human-reviewed-screenshot'}, {'title':'another'},
+                       {'input_text':'partial'}, {'foreground':False}, {'observed_at':997}):
+            with self.subTest(change=change), self.assertRaises(ProbeError):
+                self.bound_plan(ui=dict(self.ui, **change))
+        with self.assertRaises(ProbeError):
+            self.bound_plan(contacts=self.contacts+[{'username':'wxid_private','remark':'test-group'}])
+        with self.assertRaises(ProbeError):
+            self.bound_plan(command=dict(self.command, room_id='other@chatroom'))
+
+    def test_local_probe_and_gateway_approval_namespaces_cannot_be_substituted(self):
+        probe = dict(self.command, draft_id='probe_'+'e'*64)
+        self.bound_plan(command=probe, local_probe=True)
+        with self.assertRaises(ProbeError):
+            self.bound_plan(command=probe)
+        with self.assertRaises(ProbeError):
+            self.bound_plan(local_probe=True)
+        for text in ('x\n', 'x\r', 'x\x00', 'x\t'):
+            with self.assertRaises(ProbeError):
+                self.bound_plan(command=dict(self.command,text=text),ui=dict(self.ui,input_text=text))
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@
         "type": "object",
         "properties": {
           "event_id": {"type": "string", "minLength": 1, "maxLength": 128},
-          "text": {"type": "string", "minLength": 1, "maxLength": 800, "pattern": "\\S"},
+          "text": {"type": "string", "minLength": 1, "maxLength": 800, "description": "Reply text; whitespace-only values are rejected by the server."},
           "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128}
         },
         "required": ["event_id", "text", "idempotency_key"],

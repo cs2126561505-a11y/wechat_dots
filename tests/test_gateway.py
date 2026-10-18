@@ -140,6 +140,24 @@ class GatewayTests(unittest.TestCase):
         with self.assertRaises(GatewayError):
             self.store.approve("owner", draft["draft_id"], "forged-hash", "owner")
 
+    def test_chinese_draft_and_server_side_blank_rejection(self):
+        from wechat_gateway.rpc import RPC
+        from wechat_gateway.auth import Identity
+        rpc = RPC(self.store, self.events)
+        identity = Identity("owner", "dot", frozenset({"wechat:draft"}))
+        event_id = self.ingest()
+        for text in (" ", "\t\r\n", "\u3000\u00a0"):
+            result = rpc.call(identity, "tools/call", {"name": "wechat_propose_reply",
+                "arguments": {"event_id": event_id, "text": text, "idempotency_key": "blank"}})
+            self.assertTrue(result["isError"])
+        result = rpc.call(identity, "tools/call", {"name": "wechat_propose_reply",
+            "arguments": {"event_id": event_id, "text": "你好，收到你的消息。", "idempotency_key": "chinese"}})
+        self.assertFalse(result["isError"])
+        self.assertEqual(result["structuredContent"]["status"], "draft_pending")
+        self.assertNotIn("pattern", rpc.tools["wechat_propose_reply"]["inputSchema"]["properties"]["text"])
+        with self.assertRaises(GatewayError):
+            self.store.claim_send(self.binding, result["structuredContent"]["draft_id"])
+
     def test_approval_expires_and_changes_with_policy(self):
         draft = self.approved()
         self.now += 901
