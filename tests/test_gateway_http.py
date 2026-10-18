@@ -59,9 +59,17 @@ class HttpTests(unittest.TestCase):
         # Fix the browser policy instead of allowing opaque or foreign origins.
         for origin in ("null", "https://attacker.example"):
             self.assertEqual(self.request("/oauth/consent", form, dict(request_headers, origin=origin))[0], 403)
-        self.assertEqual(self.request("/oauth/consent", form, dict(request_headers, cookie=""))[0], 400)
+        with self.assertLogs("uvicorn.error", level="INFO") as captured:
+            self.assertEqual(self.request("/oauth/consent", form, dict(request_headers, cookie=""))[0], 400)
+        self.assertIn("reason=browser_cookie_or_csrf", " ".join(captured.output))
+        self.assertNotIn(fields["csrf"], " ".join(captured.output))
         wrong_csrf = urlencode(dict(fields, csrf="mismatch", owner_secret="x" * 32)).encode()
         self.assertEqual(self.request("/oauth/consent", wrong_csrf, request_headers)[0], 400)
+        with self.assertLogs("uvicorn.error", level="INFO") as captured:
+            bad_password = urlencode(dict(fields, owner_secret="wrong-password")).encode()
+            self.assertEqual(self.request("/oauth/consent", bad_password, request_headers)[0], 400)
+        self.assertIn("reason=owner_credential", " ".join(captured.output))
+        self.assertNotIn("wrong-password", " ".join(captured.output))
         response, _ = self.request("/oauth/consent", form, request_headers, raw=True)
         self.assertEqual(response["status"], 303)
         self.assertTrue(dict(response["headers"])[b"location"].startswith(callback.encode() + b"?"))

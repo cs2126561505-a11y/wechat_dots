@@ -19,6 +19,16 @@ from .store import GatewayError, canonical
 AUDIT_PATHS = frozenset({"/oauth/authorize", "/oauth/consent", "/oauth/register",
                          "/oauth/token", "/oauth/revoke", "/mcp"})
 LOGGER = logging.getLogger("uvicorn.error")
+AUTH_FAILURES = {
+    "Browser authorization check failed.": "browser_cookie_or_csrf",
+    "Invalid consent parameters.": "consent_fields",
+    "Owner authentication failed.": "owner_credential",
+    "Authorization request expired or invalid.": "request_expired_used_or_csrf",
+    "Too many authorization requests; try again later.": "rate_limit",
+    "Code, resource and S256 PKCE are required.": "authorization_parameters",
+    "Unknown OAuth client or redirect.": "client_or_redirect",
+    "Unsupported authorization scope.": "scope",
+}
 
 
 def parse_form(raw):
@@ -123,7 +133,12 @@ class App:
                     if not event.get("more_body", False):
                         break
             status, result, extra = await asyncio.to_thread(self.route, scope, headers, bytes(body))
-        except (GatewayError, ValueError, UnicodeError, RecursionError):
+        except GatewayError as exc:
+            if scope["path"] in AUDIT_PATHS and scope["path"].startswith("/oauth/"):
+                LOGGER.info("gateway_auth_rejected path=%s reason=%s", scope["path"],
+                            AUTH_FAILURES.get(str(exc), "invalid_request"))
+            status, result, extra = 400, {"error": "Invalid or unauthorized request."}, []
+        except (ValueError, UnicodeError, RecursionError):
             status, result, extra = 400, {"error": "Invalid or unauthorized request."}, []
         except TimeoutError:
             status, result, extra = 408, {"error": "Request timed out."}, []
