@@ -30,6 +30,6 @@ dot 通过授权码和 S256 PKCE 连接。当前授权服务针对单个所有�
 
 本地 69 项测试通过，其中 27 项覆盖网关；Linux 部署包中的同样 27 项通过，依赖检查通过。真实环回 HTTP 测试完成 OAuth、订阅、模拟消息入队、模拟 dot 草稿、独立审核、适配器领取与合成确认。公网 HTTPS 检查完成授权码交换及工具、事件目录读取，测试令牌已撤销。
 
-实际连接曾报告 `Origin rejected.`。检查发现授权页采用 `no-referrer`，按照浏览器 Fetch 规范，同源表单 POST 也会产生 `Origin: null`。现已改为 `same-origin`，保留同源提交校验，并在跨站回调时省略 Referer。新增回归覆盖 CSRF、空来源与外站拒绝；请求诊断仅记录固定接口、方法、状态码和来源类别。原 HTTPS 检查手动填入 Origin，因此没有覆盖浏览器自动生成请求头的行为；实际 ChatGPT 连接重试仍待确认。[Fetch 来源处理规范](https://fetch.spec.whatwg.org/#append-a-request-origin-header)
+实际连接曾报告 `Origin rejected.`。检查发现授权页采用 `no-referrer`，按照浏览器 Fetch 规范，同源表单 POST 也会产生 `Origin: null`。现已改为 `same-origin`，保留同源提交校验，并在跨站回调时省略 Referer。用户重试后，日志确认同源授权提交返回 303，原拒绝已经越过；随后检查发现 `form-action 'self'` 还会限制 Chromium 的跨站回跳，已将配置内的精确 OAuth 回调加入表单策略。新增回归覆盖 CSRF、空来源与外站拒绝及回调策略；请求诊断仅记录固定接口、方法、状态码和来源类别。原 HTTPS 检查手动填入 Origin，并未驱动浏览器，因此没有覆盖这些行为；实际 ChatGPT 最终连接仍待确认。[Fetch 来源处理规范](https://fetch.spec.whatwg.org/#append-a-request-origin-header) · [浏览器表单与回跳策略](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action)
 
 完整验收仍需实际 dot 唤醒、专用来宾采集、可靠群目标确认、经批准的测试回复及接收端确认，以及断线恢复和同名会话对照。接口当前仅处理文本，ZIP 文件传递尚未实现。网关测试使用合成消息，日常主机微信保持隔离。

@@ -50,6 +50,8 @@ class HttpTests(unittest.TestCase):
         headers = dict(response["headers"])
         self.assertEqual(response["status"], 200)
         self.assertEqual(headers[b"referrer-policy"], b"same-origin")
+        self.assertIn(b"form-action 'self' " + callback.encode() + b";", headers[b"content-security-policy"])
+        self.assertNotIn(b"*", headers[b"content-security-policy"])
         fields = dict(re.findall(r'name="(request_id|csrf)" value="([^"]+)"', body.decode()))
         form = urlencode(dict(fields, owner_secret="x" * 32)).encode()
         request_headers = {"host": "gateway.example", "content-type": "application/x-www-form-urlencoded",

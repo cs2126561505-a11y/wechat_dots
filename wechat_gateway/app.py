@@ -134,6 +134,11 @@ class App:
     async def respond(self, send, status, result, extra=()):
         raw = result if isinstance(result, bytes) else canonical(result).encode()
         kind = b"text/html; charset=utf-8" if isinstance(result, bytes) else b"application/json"
+        # Chromium also checks form-action at the redirect following consent.
+        # Include only configured OAuth callbacks; Auth rejects CSP delimiters.
+        callbacks = " ".join(sorted(self.auth.redirects))
+        form_action = "'self'" + (" " + callbacks if isinstance(result, bytes) else "")
+        csp = f"default-src 'none'; form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
         headers = [(b"content-type", kind), (b"content-length", str(len(raw)).encode()),
                    (b"cache-control", b"no-store"), (b"x-content-type-options", b"nosniff"),
                    # Fetch's append-Origin algorithm makes a form POST's Origin
@@ -141,7 +146,7 @@ class App:
                    # same-origin preserves our consent check and strips Referer
                    # on the cross-origin OAuth callback.
                    (b"referrer-policy", b"same-origin"),
-                   (b"content-security-policy", b"default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")]
+                   (b"content-security-policy", csp.encode("ascii"))]
         headers.extend(extra)
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": raw})

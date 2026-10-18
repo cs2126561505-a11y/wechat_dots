@@ -46,7 +46,8 @@ class Auth:
         self.redirects = frozenset(redirects)
         for uri in redirects:
             parts = urlsplit(uri)
-            if parts.scheme != "https" or not parts.hostname or parts.fragment or parts.username:
+            if (parts.scheme != "https" or not parts.hostname or parts.fragment or parts.username
+                    or re.search(r"[\s;'\"*\\]", uri)):
                 raise GatewayError("Exact HTTPS redirect allowlist required.")
         for item in service_tokens:
             if item.get("role") not in ("owner", "adapter") or not re.fullmatch(r"[0-9a-f]{64}", item.get("sha256", "")):
