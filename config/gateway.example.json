@@ -1,0 +1,12 @@
+{
+  "base_url": "https://gateway.example",
+  "issuer_url": "https://gateway.example/",
+  "state_dir": "/var/lib/wechat-dots",
+  "key_file": "/etc/wechat-dots/webhook.key",
+  "owner_principal": "owner",
+  "owner_secret_hash": "REPLACE_WITH_SHA256_OF_PRIVATE_LOGIN_SECRET",
+  "service_tokens": [],
+  "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+  "bindings": [],
+  "policy": {}
+}

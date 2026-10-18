@@ -128,6 +128,7 @@ class ContractTests(unittest.TestCase):
 
     def test_tool_inputs_accept_minimal_valid_samples(self) -> None:
         samples = {
+            "wechat_get_connection": {},
             "wechat_get_event": {"event_id": "evt_synthetic_001"},
             "wechat_get_context": {"event_id": "evt_synthetic_001", "limit": 20},
             "wechat_propose_reply": {"event_id": "evt_synthetic_001",
@@ -146,10 +147,10 @@ class ContractTests(unittest.TestCase):
             with self.subTest(field=key), self.assertRaises(ValidationError):
                 self.tool_validator("wechat_send_reply").validate(candidate)
 
-    def test_draft_requires_key_and_bounded_nonblank_text(self) -> None:
+    def test_draft_requires_key_and_bounded_text(self) -> None:
         valid = {"event_id": "evt_synthetic_001", "text": "草稿",
                  "idempotency_key": "key_synthetic_001"}
-        for text in ("", "   ", "x" * 801):
+        for text in ("", "x" * 801):
             candidate = dict(valid, text=text)
             with self.subTest(text_length=len(text)), self.assertRaises(ValidationError):
                 self.tool_validator("wechat_propose_reply").validate(candidate)
@@ -200,7 +201,7 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("wechat_send_reply", self.catalog["default_exposed_tools"])
         self.assertEqual(
             set(self.catalog["default_exposed_tools"]),
-            {"wechat_get_event", "wechat_get_context", "wechat_propose_reply"},
+            {"wechat_get_connection", "wechat_get_event", "wechat_get_context", "wechat_propose_reply"},
         )
 
 

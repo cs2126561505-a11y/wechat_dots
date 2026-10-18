@@ -1,0 +1,4 @@
+# Isolated local diagnostic only. No WeChat desktop automation package is installed.
+cryptography==48.0.0
+psutil==7.2.2
+zstandard==0.25.0
