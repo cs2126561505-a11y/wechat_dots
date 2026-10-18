@@ -1,5 +1,6 @@
 {
   "base_url": "https://gateway.example",
+  "issuer_url": "https://gateway.example/",
   "state_dir": "/var/lib/wechat-dots",
   "key_file": "/etc/wechat-dots/webhook.key",
   "owner_principal": "owner",

@@ -13,8 +13,9 @@ from .webhooks import Events
 
 def build(config_path: Path):
     config = json.loads(config_path.read_text("utf-8"))
-    if set(config) != {"base_url", "state_dir", "key_file", "owner_principal", "owner_secret_hash",
-                       "service_tokens", "redirect_uris", "bindings", "policy"}:
+    required = {"base_url", "state_dir", "key_file", "owner_principal", "owner_secret_hash",
+                "service_tokens", "redirect_uris", "bindings", "policy"}
+    if not required <= set(config) or set(config) - required - {"issuer_url"}:
         raise GatewayError("Unexpected gateway configuration fields.")
     state_dir, key_file = Path(config["state_dir"]), Path(config["key_file"])
     if not state_dir.is_absolute() or not state_dir.is_dir() or state_dir.is_symlink() or not key_file.is_absolute() or key_file.is_symlink():
@@ -25,7 +26,7 @@ def build(config_path: Path):
         raise GatewayError("Live collection requires an explicit room binding.")
     store = Store(state_dir / "gateway.sqlite3", bindings, policy)
     auth = Auth(store, config["base_url"], config["owner_principal"], config["owner_secret_hash"],
-                config["service_tokens"], tuple(config["redirect_uris"]))
+                config["service_tokens"], tuple(config["redirect_uris"]), config.get("issuer_url"))
     events = Events(store, key_file.read_bytes().strip(), has_grant=auth.has_event_grant)
     return App(store, events, auth)
 

@@ -17,7 +17,10 @@ from .store import GatewayError, canonical
 
 
 AUDIT_PATHS = frozenset({"/oauth/authorize", "/oauth/consent", "/oauth/register",
-                         "/oauth/token", "/oauth/revoke", "/mcp"})
+                         "/oauth/token", "/oauth/revoke", "/mcp",
+                         "/.well-known/oauth-protected-resource",
+                         "/.well-known/oauth-protected-resource/mcp",
+                         "/.well-known/oauth-authorization-server"})
 LOGGER = logging.getLogger("uvicorn.error")
 AUTH_FAILURES = {
     "Browser authorization check failed.": "browser_cookie_or_csrf",

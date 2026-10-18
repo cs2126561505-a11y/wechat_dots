@@ -103,6 +103,29 @@ class AuthTests(unittest.TestCase):
         with self.assertRaises(GatewayError):
             self.auth.authenticate("Bearer " + adapter_secret)
 
+    def test_explicit_issuer_is_exact_across_discovery_and_callback(self):
+        for suffix in ("", "/"):
+            with self.subTest(suffix=suffix):
+                store = Store(Path(self.tmp.name) / ("issuer-slash.sqlite3" if suffix else "issuer-origin.sqlite3"), (), Policy())
+                try:
+                    issuer = "https://gateway.example" + suffix
+                    auth = Auth(store, "https://gateway.example", "owner", token_hash(self.secret), [],
+                                (self.callback,), issuer_url=issuer)
+                    client = auth.register({"redirect_uris": [self.callback]})["client_id"]
+                    pending = auth.begin(dict(self.params, client_id=client))
+                    location = auth.consent(pending["request_id"], pending["csrf"], self.secret)
+                    returned = parse_qs(urlsplit(location).query)["iss"][0]
+                    self.assertEqual(returned, issuer)
+                    self.assertEqual(auth.metadata()["issuer"], returned)
+                    self.assertEqual(auth.resource_metadata()["authorization_servers"], [returned])
+                    self.assertEqual(auth.base_url, "https://gateway.example")
+                    self.assertEqual(auth.resource, "https://gateway.example/mcp")
+                    with self.assertRaises(GatewayError):
+                        Auth(store, "https://gateway.example", "owner", token_hash(self.secret), [],
+                             (self.callback,), issuer_url="https://gateway.example" + ("" if suffix else "/"))
+                finally:
+                    store.close()
+
 
 if __name__ == "__main__":
     unittest.main()

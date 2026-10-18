@@ -33,13 +33,20 @@ class Identity:
 
 class Auth:
     def __init__(self, store: Store, base_url: str, owner_principal: str,
-                 owner_secret_hash: str, service_tokens: list[dict], redirects: tuple[str, ...]):
+                 owner_secret_hash: str, service_tokens: list[dict], redirects: tuple[str, ...],
+                 issuer_url: str | None = None):
         parsed = urlsplit(base_url)
         if parsed.scheme != "https" or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username:
             raise GatewayError("Canonical public HTTPS origin required.")
         if not re.fullmatch(r"[0-9a-f]{64}", owner_secret_hash):
             raise GatewayError("A hashed owner login secret is required.")
         self.store, self.base_url = store, base_url
+        # Keep the web origin (Origin headers never contain a path) separate
+        # from the exact OAuth identifier. Never normalize one side of an
+        # issuer comparison or infer it from request-controlled headers.
+        self.issuer = base_url if issuer_url is None else issuer_url
+        if self.issuer not in (base_url, base_url + "/"):
+            raise GatewayError("Issuer must be an explicit spelling of this HTTPS origin.")
         self.owner_principal, self.owner_secret_hash = owner_principal, owner_secret_hash
         self.resource = base_url + "/mcp"
         self.service_tokens = service_tokens
@@ -74,16 +81,16 @@ class Auth:
         """)
         with self.store.transaction():
             old = self.store.db.execute("SELECT origin,principal FROM oauth_issuer WHERE id=1").fetchone()
-            if old is not None and tuple(old) != (base_url, owner_principal):
+            if old is not None and tuple(old) != (self.issuer, owner_principal):
                 raise GatewayError("Issuer or owner changed; use a fresh authorization store.")
-            self.store.db.execute("INSERT OR IGNORE INTO oauth_issuer VALUES (1,?,?)", (base_url, owner_principal))
+            self.store.db.execute("INSERT OR IGNORE INTO oauth_issuer VALUES (1,?,?)", (self.issuer, owner_principal))
 
     def resource_metadata(self):
-        return {"resource": self.resource, "authorization_servers": [self.base_url],
+        return {"resource": self.resource, "authorization_servers": [self.issuer],
                 "scopes_supported": sorted(SCOPES), "bearer_methods_supported": ["header"]}
 
     def metadata(self):
-        return {"issuer": self.base_url, "authorization_endpoint": self.base_url + "/oauth/authorize",
+        return {"issuer": self.issuer, "authorization_endpoint": self.base_url + "/oauth/authorize",
                 "token_endpoint": self.base_url + "/oauth/token",
                 "registration_endpoint": self.base_url + "/oauth/register",
                 "revocation_endpoint": self.base_url + "/oauth/revoke",
@@ -158,7 +165,7 @@ class Auth:
             self.store.db.execute("INSERT INTO oauth_codes VALUES (?,?,?,?,?,?,?,0)", (
                 token_hash(code), row["client"], row["redirect"], row["challenge"], self.owner_principal, row["scopes"], self.store.clock() + 120))
         separator = "&" if "?" in row["redirect"] else "?"
-        return row["redirect"] + separator + urlencode({"code": code, "state": row["state"], "iss": self.base_url})
+        return row["redirect"] + separator + urlencode({"code": code, "state": row["state"], "iss": self.issuer})
 
     def mint(self, row, family):
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
