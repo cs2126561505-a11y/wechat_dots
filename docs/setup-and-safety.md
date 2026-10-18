@@ -8,7 +8,7 @@
 
 ## 群聊配置
 
-`config/group-policy.example.json` 是待实现网关的配置。`0.2` 版仅接受 `wechaty_experimental` 与 `wechatferry_experimental` 两种已选择通道，也允许 `unselected` 表示尚未选择。启用须显式接受非官方通道、填写群白名单并确认必要告知。
+`config/group-policy.example.json` 保留早期通道规划契约。其 `0.2` 版仅接受 `wechaty_experimental` 与 `wechatferry_experimental` 两种已选择通道，也允许 `unselected` 表示尚未选择。当前已实现的实验网关采用 `config/gateway.example.json`，实际群绑定与凭据放在私密部署配置中。启用须明确接受非官方通道、填写群白名单并确认必要告知。
 
 默认接入关闭、白名单为空、只生成草稿、发送工具从 dot 目录排除。服务端负责执行配置，JSON Schema 负责字段与静态条件校验。
 
@@ -55,4 +55,4 @@ OpenAI 说明 dot 可使用已连接插件，并与 ChatGPT 共享记忆和近�
 | 回路与限流 | 过滤自身回复，突发消息按每群串行与速率上限处理 |
 | 紧急停止 | 所有者能从管理入口停止接入和后续发送 |
 
-表中各项均待实机验证。离线测试范围见[验证记录](validation.md)。
+普通群收发、原 dot 身份与草稿、独立审核后的首次完整回路已取得实机证据。该表是完整生产验收范围，订阅全生命周期、长期掉线恢复及全面权限对抗等项目仍待后续验证。实际完成范围与离线证据见[验证记录](validation.md)。

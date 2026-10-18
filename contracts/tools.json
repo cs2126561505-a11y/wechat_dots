@@ -1,7 +1,7 @@
 {
   "project_contract_version": "0.2",
-  "status": "experimental_gateway_live_roundtrip_pending",
-  "notes": "The gateway enforces authentication, event ownership, room binding, approval and idempotency. Sending remains disabled until desktop admission. The owner API is separate from MCP tools. Live dot and WeChat roundtrip validation is still required.",
+  "status": "experimental_gateway_controlled_roundtrip_verified",
+  "notes": "The gateway enforces authentication, event ownership, room binding, approval and idempotency. The owner API is separate from MCP tools. One controlled live dot-to-WeChat roundtrip passed with an independently approved draft and recipient confirmation. Sending is closed after the bounded test; continuous operation and full production admission remain future work.",
   "default_exposed_tools": ["wechat_get_connection", "wechat_get_event", "wechat_get_context", "wechat_propose_reply"],
   "tools": [
     {
