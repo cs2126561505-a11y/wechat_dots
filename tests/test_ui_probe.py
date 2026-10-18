@@ -25,7 +25,8 @@ class UiProbeTests(unittest.TestCase):
                      "enabled": True, "offscreen": False, "password": False, "value_pattern": True, "text_pattern": False}
         self.snapshot = {"schema": 1, "process_id": 42, "process_started_ms": 1000125,
                          "session_verified": True, "windows": 1, "errors": 0,
-                         "status": "complete", "nodes": [self.node]}
+                         "status": "complete", "nodes": [self.node], "view": "control",
+                         "msaa_requested": False, "msaa_results": []}
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -65,7 +66,7 @@ class UiProbeTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ProbeError):
                 ui_probe.summarize(dict(self.snapshot, **changes), 42, 1000125, 256)
         for changes in ({"control_type": "ControlType.PRIVATE_CHAT"}, {"name": "x" * 161},
-                        {"parent": 1}, {"depth": 9}, {"enabled": "private"}):
+                        {"parent": 1}, {"depth": ui_probe.MAX_DEPTH + 1}, {"enabled": "private"}):
             with self.subTest(changes=changes), self.assertRaises(ProbeError):
                 ui_probe.summarize(dict(self.snapshot, nodes=[dict(self.node, **changes)]), 42, 1000125, 256)
         with self.assertRaises(ProbeError):
@@ -114,6 +115,38 @@ class UiProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(ProbeError, "admission changed"):
             ui_probe.inspect_guest()
 
+    def test_msaa_raw_comparison_is_explicit_and_preserves_aggregate_only_result(self):
+        self.snapshot.update(view="raw", msaa_requested=True,
+                             msaa_results=[{"status": "s_ok", "child_count": 0, "private_detail": "PRIVATE"}])
+        run, _ = self.worker_context(self.complete_worker)
+        result = ui_probe.inspect_guest(view="raw", msaa_client=True)
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("-View") + 1], "raw")
+        self.assertIn("-MsaaClient", command)
+        self.assertEqual(result["msaa_results"], [{"status": "s_ok", "child_count": 0}])
+        self.assertNotIn("PRIVATE", json.dumps(result))
+        self.assertNotIn("usable", result)
+        self.assertFalse(result["send_enabled"])
+
+    def test_msaa_report_requires_matching_mode_and_valid_counts(self):
+        snapshot = dict(self.snapshot, view="raw", msaa_requested=True)
+        for observation in ({"status": "PRIVATE", "child_count": 0},
+                            {"status": "s_ok", "child_count": -1},
+                            {"status": "s_ok", "child_count": True},
+                            {"status": "no_interface", "child_count": 1}):
+            with self.subTest(observation=observation), self.assertRaises(ProbeError):
+                ui_probe.summarize(dict(snapshot, msaa_results=[observation]), 42, 1000125, 256, "raw", True)
+        with self.assertRaises(ProbeError):
+            ui_probe.summarize(snapshot, 42, 1000125, 256)
+        result = ui_probe.summarize(dict(snapshot, msaa_results=[{"status": "no_interface", "child_count": None}]), 42, 1000125, 256, "raw", True)
+        self.assertIsNone(result["msaa_results"][0]["child_count"])
+
+    def test_default_worker_does_not_request_msaa(self):
+        run, _ = self.worker_context(self.complete_worker)
+        ui_probe.inspect_guest()
+        self.assertNotIn("-MsaaClient", run.call_args.args[0])
+        self.assertEqual(run.call_args.args[0][-1], "control")
+
     def test_worker_timeout_and_errors_hide_private_diagnostics(self):
         run, _ = self.worker_context(Mock())
         for failure in (subprocess.TimeoutExpired(["PRIVATE COMMAND"], 25, output=b"PRIVATE CONTENT", stderr=b"PRIVATE ERROR"),
@@ -137,9 +170,9 @@ class UiProbeTests(unittest.TestCase):
     def test_fixed_worker_has_only_read_only_native_imports(self):
         # This audit guards the narrow native surface, not incidental formatting.
         import re
-        imports = re.findall(r'\[DllImport\("([^\"]+)"\)\] private static extern \w+ (\w+)\(', ui_probe.WORKER_SOURCE)
-        self.assertEqual(set(imports), {("user32.dll", "EnumWindows"), ("user32.dll", "GetWindowThreadProcessId"), ("user32.dll", "IsWindowVisible")})
-        for forbidden in ("InvokePattern", "SetFocus", "SetValue", "SendInput", "SendKeys", "ReadProcessMemory", "WriteProcessMemory", "VirtualAllocEx", "GetCurrentPattern", "RootElement", "ensure_materialized"):
+        imports = re.findall(r'\[DllImport\("([^\"]+)"[^\]]*\)\]\s*private static extern \w+ (\w+)\(', ui_probe.WORKER_SOURCE)
+        self.assertEqual(set(imports), {("user32.dll", "EnumWindows"), ("user32.dll", "GetWindowThreadProcessId"), ("user32.dll", "IsWindowVisible"), ("oleacc.dll", "AccessibleObjectFromWindow")})
+        for forbidden in ("InvokePattern", "SetFocus", "SetValue", "SendInput", "SendKeys", "ReadProcessMemory", "WriteProcessMemory", "VirtualAllocEx", "GetCurrentPattern", "RootElement", "ensure_materialized", "SystemParametersInfo", "Narrator", "accDoDefaultAction", "accSelect", "accValue"):
             self.assertNotIn(forbidden, ui_probe.WORKER_SOURCE)
         self.assertIn("target.SessionId == current.SessionId", ui_probe.WORKER_SOURCE)
         self.assertIn("element.Current.ProcessId != pid", ui_probe.WORKER_SOURCE)
