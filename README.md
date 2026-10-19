@@ -27,6 +27,8 @@ OpenAI 提供 dots 的 MCP Events 接入机制，网关负责实现事件订阅�
 
 [方案筛选](docs/ecosystem.md) 记录候选与证据；[架构与接口](docs/architecture.md) 定义消息链路；[聊天配置与验收](docs/setup-and-safety.md) 给出群规、dot 指令和权限要求；[验证记录](docs/validation.md) 区分离线结果与实机状态。
 
+[首次回路测试复盘](docs/retrospectives/2026-10-18-testing-review.md) 结合带时间的会话和提交记录，整理潜在的过度测试、必要验证及可合并的操作；[测试事件台账](docs/retrospectives/2026-10-18-testing-events.md) 逐项记录目的、时间范围、结果与证据。
+
 [群策略](config/group-policy.example.json) 与[消息事件](examples/message-event.json) 使用 `0.2` 版项目契约，范围固定为普通微信群。默认接入关闭、白名单为空、草稿模式。[工具契约](contracts/tools.json) 保留读取、草稿和审核后发送的设计。
 
 当前交付包括隔离读取探针、OAuth、MCP 事件订阅、持久化队列、审核状态机与合成 HTTP 回路测试。运行网关使用独立私密配置，示例见 `config/gateway.example.json`；原群策略文件仍是规划契约。仓库使用合成数据，私密状态、凭据、候选源码缓存与虚拟环境均排除在版本控制之外。
